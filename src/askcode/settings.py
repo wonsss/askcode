@@ -39,8 +39,8 @@ class Settings(BaseSettings):
     escalation_channel: str | None = Field(default=None, description="'개발자에게 확인 요청'을 올릴 채널 ID")
 
     # 단순 호출 비용 추정용 단가 (USD / 100만 토큰). 현재 가격표에 맞게 설정
-    price_small_input: float = 1.0
-    price_small_output: float = 5.0
+    price_small_input: float = 0.10  # claude-haiku-5-5, USD / 100만 토큰
+    price_small_output: float = 0.50
 
     # 노션 (봇 전용 내부 통합, 읽기 전용)
     notion_token: SecretStr | None = None
