@@ -135,7 +135,23 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 """
 
-APPEND_ONLY_TABLES = ("queries", "query_results", "tool_calls", "citations", "feedback")
+APPEND_ONLY_TABLES = ("queries", "query_results", "tool_calls", "citations", "feedback", "redactions")
+
+# 스키마 버전(PRAGMA user_version). SCHEMA는 버전 1의 기준 테이블이고, 이후 변경은 여기에 번호를 붙여 쌓는다.
+# 배포된 DB는 시작할 때 자기 버전보다 큰 마이그레이션만 순서대로 적용한다. 한 번 배포한 항목은 고치지 않는다.
+MIGRATIONS: list[tuple[int, str]] = [
+    (2, """
+CREATE TABLE IF NOT EXISTS redactions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  query_id TEXT NOT NULL REFERENCES queries(id),
+  ts REAL NOT NULL,
+  operator TEXT NOT NULL,
+  reason TEXT NOT NULL
+);
+"""),
+]
+SCHEMA_VERSION = max([1, *(v for v, _ in MIGRATIONS)])
+REDACTED = "[삭제됨]"
 
 
 def _append_only_triggers() -> str:
@@ -175,7 +191,58 @@ class Store:
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self._conn.executescript(_append_only_triggers())
+
+    def _migrate(self) -> None:
+        current = self._conn.execute("PRAGMA user_version").fetchone()[0] or 1
+        for version, sql in MIGRATIONS:
+            if version <= current:
+                continue
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                for stmt in [x for x in sql.split(";") if x.strip()]:
+                    self._conn.execute(stmt)
+                self._conn.execute(f"PRAGMA user_version = {version}")
+                self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+        if (self._conn.execute("PRAGMA user_version").fetchone()[0] or 0) < 1:
+            self._conn.execute("PRAGMA user_version = 1")
+
+    @property
+    def schema_version(self) -> int:
+        return self._conn.execute("PRAGMA user_version").fetchone()[0]
+
+    def redact(self, query_id: str, operator: str, reason: str) -> bool:
+        """질문·답·도구 입력 텍스트를 가린다. 행은 지우지 않고(영구 보존), 가린 사실을 redactions에 남긴다.
+
+        append-only 트리거는 쓰기 잠금(BEGIN IMMEDIATE)을 잡은 이 트랜잭션 안에서만 잠시 내렸다가 다시 건다.
+        도중에 실패하면 트리거까지 함께 되돌린다(SQLite DDL은 트랜잭션에 포함된다).
+        """
+        if not reason.strip() or not operator.strip():
+            raise ValueError("operator와 reason은 필수입니다")
+        with self._lock:
+            if not self._conn.execute("SELECT 1 FROM queries WHERE id=?", (query_id,)).fetchone():
+                return False
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                for table in ("queries", "query_results", "tool_calls"):
+                    self._conn.execute(f"DROP TRIGGER IF EXISTS {table}_no_update")
+                self._conn.execute("UPDATE queries SET question=? WHERE id=?", (REDACTED, query_id))
+                self._conn.execute("UPDATE query_results SET answer=?, scope=NULL WHERE query_id=?", (REDACTED, query_id))
+                self._conn.execute("UPDATE tool_calls SET input_json='{}', result_summary=NULL WHERE query_id=?", (query_id,))
+                self._conn.execute("INSERT INTO redactions(query_id, ts, operator, reason) VALUES (?,?,?,?)",
+                                   (query_id, time.time(), operator, reason))
+                for table in ("queries", "query_results", "tool_calls"):
+                    self._conn.execute(f"""CREATE TRIGGER {table}_no_update BEFORE UPDATE ON {table}
+BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END""")
+                self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+        return True
 
     def execute(self, sql: str, params: tuple | dict = ()) -> sqlite3.Cursor:
         with self._lock:
