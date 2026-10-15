@@ -17,6 +17,18 @@ from askcode.llm.complete import LLM, Completion
 
 log = logging.getLogger(__name__)
 
+class LLMUnavailable(Exception):
+    """크레딧 부족·인증 실패처럼 다시 시도해도 안 되는 API 오류. 에이전트로 넘기지 않고 바로 실패시킨다."""
+
+
+def is_fatal_api_error(exc: Exception) -> bool:
+    import anthropic
+
+    if isinstance(exc, (anthropic.AuthenticationError, anthropic.PermissionDeniedError)):
+        return True
+    return isinstance(exc, anthropic.BadRequestError) and "credit balance" in str(exc).lower()
+
+
 KINDS = ("simple", "policy", "screen_hybrid", "multi_hop", "decision", "broad", "out_of_scope")
 
 
@@ -156,6 +168,9 @@ class Scoper:
             scope = parse_scope(comp.text, {d.id for d in self.map.domains})
             return scope, comp
         except Exception as exc:
+            if is_fatal_api_error(exc):
+                # 대형 모델도 같은 이유로 실패한다. 에이전트로 넘기면 하위 프로세스 기동 비용·시간만 든다.
+                raise LLMUnavailable(f"{type(exc).__name__}: {str(exc)[:200]}") from exc
             # 스코핑 실패 시 범위 제한 없이 에이전트로 처리 (답은 하되 비용이 더 든다)
             log.warning("scoping failed: %s", exc)
             return Scope(kind="multi_hop", confidence="low", reason=f"스코핑 실패: {type(exc).__name__}"), None

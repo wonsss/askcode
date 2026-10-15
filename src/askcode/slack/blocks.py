@@ -56,6 +56,8 @@ def answer_blocks(a: Answer) -> list[dict]:
         return clarify_blocks(a)
     if a.status == "refuse":
         return refuse_blocks(a)
+    if a.status == "error":
+        return [{"type": "section", "text": {"type": "mrkdwn", "text": f"⚠️ {a.body}"}}]
     scope = f"  ·  범위 `{', '.join(a.scope.domains)}`" if a.scope and a.scope.domains else ""
     meta = f"{CONFIDENCE_LABEL.get(a.confidence, a.confidence)}  ·  기준 `main@{a.commit[:7]}`{scope}"
     blocks: list[dict] = [

@@ -16,7 +16,7 @@ from pathlib import Path
 from askcode.agent.base import AgentRequest, AgentRunner, ToolSpec
 from askcode.config import RepoConfig
 from askcode.pipeline.prompts import build_question, build_system_prompt
-from askcode.pipeline.scoping import DomainMap, Route, Scope, Scoper, route_for
+from askcode.pipeline.scoping import DomainMap, LLMUnavailable, Route, Scope, Scoper, route_for
 from askcode.store.db import QueryResult, Store
 from askcode.tools.code_tools import CodeTools, ToolSession
 from askcode.tools.doc_tools import DocTools
@@ -30,6 +30,7 @@ REFUSE_TEXT = (
     "이 질문은 AskCode가 답할 수 없는 범위예요. AskCode는 코드와 기획 문서만 읽으며, "
     "실제 사용자 정보·운영 데이터·비밀값에는 접근하지 않습니다. 필요한 경우 담당 부서의 정식 절차로 요청해 주세요."
 )
+UNAVAILABLE_TEXT = "지금은 AI 모델을 호출할 수 없어 답하지 못했어요(크레딧·인증 문제). 관리자에게 알려 주세요."
 
 
 @dataclass
@@ -51,7 +52,7 @@ class Answer:
     citations: list[Citation]
     confidence: str  # high | medium | low
     commit: str
-    status: str = "answer"  # answer | clarify | refuse
+    status: str = "answer"  # answer | clarify | refuse | error
     route: str = "agent"
     scope: Scope | None = None
     options: list[tuple[str, str]] = field(default_factory=list)  # (domain id, 이름)
@@ -210,13 +211,7 @@ class AnswerService:
         return ((comp.input_tokens + comp.cache_write_tokens * 1.25 + comp.cache_read_tokens * 0.1) * pin
                 + comp.output_tokens * pout) / 1_000_000
 
-    async def answer(self, question: str, source: str = "cli", user_id: str | None = None,
-                     channel: str | None = None, thread_ts: str | None = None,
-                     forced_domains: list[str] | None = None, extra_context: str = "") -> Answer:
-        commit = self.store.get_repo_commit(self.repo.name) or "unknown"
-        query_id = self.store.log_query(question, source, user_id, channel, thread_ts, commit)
-
-        # 1) 스코핑
+    async def _scope(self, question: str, forced_domains: list[str] | None) -> tuple[Scope, float]:
         scope_cost = 0.0
         if forced_domains is not None:
             scope = Scope(kind="multi_hop", domains=forced_domains, confidence="high", forced=True, reason="사용자가 범위 선택")
@@ -228,6 +223,21 @@ class AnswerService:
             scope_cost = self._small_cost(comp)
         else:
             scope = Scope(kind="multi_hop", confidence="low", reason="스코핑 미사용")
+        return scope, scope_cost
+
+    async def answer(self, question: str, source: str = "cli", user_id: str | None = None,
+                     channel: str | None = None, thread_ts: str | None = None,
+                     forced_domains: list[str] | None = None, extra_context: str = "") -> Answer:
+        commit = self.store.get_repo_commit(self.repo.name) or "unknown"
+        query_id = self.store.log_query(question, source, user_id, channel, thread_ts, commit)
+
+        # 1) 스코핑
+        try:
+            scope, scope_cost = await self._scope(question, forced_domains)
+        except LLMUnavailable as exc:
+            self.store.log_result(query_id, QueryResult(status="error", answer=UNAVAILABLE_TEXT, confidence="low",
+                                                        model=self.models.get("small"), error=str(exc), route="unavailable"))
+            return Answer(query_id, UNAVAILABLE_TEXT, [], "low", commit, status="error", route="unavailable", error=str(exc))
         route = route_for(scope) if (self.scoper or forced_domains is not None) else Route("agent", "large", self.max_turns)
 
         # 2) 거절·되묻기는 에이전트 없이 끝낸다

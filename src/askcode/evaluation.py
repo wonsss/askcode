@@ -76,7 +76,7 @@ async def judge(llm: LLM, item: dict, answer: Answer) -> tuple[bool | None, str]
 async def evaluate_item(service: AnswerService, llm: LLM | None, item: dict) -> ItemResult:
     started = time.monotonic()
     a = await service.answer(item["question"], source="eval")
-    behavior = {"answer": "answer", "clarify": "clarify", "refuse": "refuse"}[a.status]
+    behavior = a.status  # answer | clarify | refuse | error(API 사용 불가)
     expected = item.get("expected_behavior", "answer")
     exp_domains = set(item.get("expected_domains") or [])
     scope_domains = a.scope.domains if a.scope else []

@@ -95,3 +95,26 @@ async def test_forced_domain_after_clarify_uses_simple_route(store, tools, repo_
                         scoper=FakeScoper(Scope(kind="simple", domains=["web"], confidence="high")), models={"small": "s", "large": "L"})
     a = await svc.answer("q", forced_domains=["bills"])
     assert a.scope.forced and a.scope.domains == ["bills"] and runner.calls[0].model == "s"
+
+
+class CreditlessLLM:
+    async def complete(self, *args, **kwargs):
+        import anthropic
+        import httpx
+
+        req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        raise anthropic.BadRequestError(
+            "Your credit balance is too low to access the Anthropic API.",
+            response=httpx.Response(400, request=req), body=None)
+
+
+async def test_fatal_api_error_skips_agent(store, tools, repo_cfg, repo_dir):
+    from askcode.pipeline.scoping import Scoper
+
+    runner = ScopedRunner()
+    svc = AnswerService(store, repo_cfg, repo_dir, runner, tools, scoper=Scoper(CreditlessLLM(), DMAP), domain_map=DMAP)
+    a = await svc.answer("앱 하단 탭 메뉴는?")
+    assert a.status == "error" and a.route == "unavailable" and not runner.calls
+    assert "credit balance" in a.error and answer_blocks(a)[0]["text"]["text"].startswith("⚠️")
+    forced = await svc.answer("알림 로직", forced_domains=["bills"])
+    assert forced.status == "error" and not runner.calls
