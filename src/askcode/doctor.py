@@ -68,7 +68,7 @@ def offline_checks(s: Settings) -> list[Check]:
     elif s.github_token:
         checks.append(Check(OK, "GitHub", "읽기 전용 토큰 사용", required=False))
     else:
-        checks.append(Check(WARN, "GitHub", "인증 없음 — 공개 레포만 가능 (law-watch는 공개)", required=False))
+        checks.append(Check(WARN, "GitHub", "인증 없음 — 공개 레포만 가능. 비공개 레포면 ASKCODE_GITHUB_TOKEN 또는 GitHub App 필요", required=False))
 
     notion = bool(s.notion_token and s.notion_root_page_id)
     checks.append(Check(OK if notion else WARN, "노션 소스", "설정됨" if notion else "미설정 (선택)", required=False))
