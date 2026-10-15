@@ -18,7 +18,9 @@ from askcode.config import RepoConfig
 from askcode.llm.pricing import estimate_cost
 from askcode.pipeline.prompts import build_question, build_system_prompt, build_wireframe_question
 from askcode.pipeline.scoping import DomainMap, LLMUnavailable, Route, Scope, Scoper, route_for
-from askcode.pipeline.wireframe import extract_html, sanitize_html, wireframe_filename
+from askcode.pipeline.wireframe import (
+    WireframeSpecError, extract_html, extract_spec, parse_spec, render_spec, sanitize_html, wireframe_filename,
+)
 from askcode.store.db import QueryResult, Store
 from askcode.tools.code_tools import CodeTools, ToolSession
 from askcode.tools.doc_tools import DocTools
@@ -36,11 +38,23 @@ UNSUPPORTED_TEXT = (
     "이 요청은 AskCode가 하지 않는 작업이에요. AskCode는 코드·기획 문서를 읽고 답하며, 새 화면의 와이어프레임을 "
     "만들 수 있어요. 코드 수정·배포·문서 작성은 하지 않습니다."
 )
-WIREFRAME_MISSING = "와이어프레임 HTML을 만들지 못했어요. 화면을 하나로 좁혀 다시 요청해 주세요. (예: \"커뮤니티 글 목록 화면 와이어프레임\")"
+WIREFRAME_MISSING = "와이어프레임을 그리지 못했어요. 화면을 하나로 좁혀 다시 요청해 주세요. (예: \"커뮤니티 글 목록 화면 와이어프레임\")"
 LIMIT_TEXT = ("질문 하나에 쓸 수 있는 탐색 한도(비용·횟수)에 도달해 답을 끝맺지 못했어요. "
               "질문을 더 좁혀서 다시 물어봐 주세요. (예: 화면 하나, 조건 하나)")
 LIMIT_ERRORS = ("error_max_budget_usd", "error_max_turns")
 UNAVAILABLE_TEXT = "지금은 AI 모델을 호출할 수 없어 답하지 못했어요(크레딧·인증 문제). 관리자에게 알려 주세요."
+
+
+def _wireframe_attachment(text: str, filename: str) -> tuple[tuple[str, str] | None, str]:
+    """명세(```json)가 있으면 렌더러로 그리고, 없으면 자유 HTML을 정제한다. 명세가 깨지면 첨부 없음."""
+    raw_spec, rest = extract_spec(text)
+    if raw_spec is not None:
+        try:
+            return (filename, render_spec(parse_spec(raw_spec))), rest
+        except WireframeSpecError:
+            return None, rest
+    raw_html, rest = extract_html(text)
+    return ((filename, sanitize_html(raw_html)) if raw_html else None), rest
 
 
 @dataclass
@@ -311,9 +325,7 @@ class AnswerService:
         attachment = None
         text = resp.text
         if route.name == "wireframe":
-            raw_html, text = extract_html(resp.text)
-            if raw_html:
-                attachment = (wireframe_filename(question, query_id), sanitize_html(raw_html))
+            attachment, text = _wireframe_attachment(resp.text, wireframe_filename(question, query_id))
         body, evidence = _split_evidence(text)
         verified, unverified = self._verify(query_id, evidence or resp.text, session, commit)
         has_code = any(c.source == "code" for c in verified)
