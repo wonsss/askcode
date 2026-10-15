@@ -1,0 +1,45 @@
+# Vultr 인스턴스 한 대에서 실행. Socket Mode라 ports 설정이 없다(외부에 열린 포트 0개).
+services:
+  askcode:
+    build: .
+    image: askcode:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ASKCODE_DATA_DIR: /data
+      ASKCODE_GITHUB_APP_PRIVATE_KEY_PATH: /run/secrets/github-app.pem
+    volumes:
+      - askcode-data:/data              # 레포 클론, 인덱스, 감사 로그(SQLite)
+      - ./secrets/github-app.pem:/run/secrets/github-app.pem:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/askcode
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    mem_limit: 4g
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  # 감사 로그 일일 백업 (SQLite online backup, 14일 보관)
+  backup:
+    image: askcode:latest
+    depends_on: [askcode]
+    restart: unless-stopped
+    user: "0:0"                        # 호스트 ./backups 쓰기용
+    volumes:
+      - askcode-data:/data              # WAL 모드라 읽기 전용 마운트로는 백업 API가 동작하지 않음
+      - ./backups:/backups
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        while true; do
+          python -c "import sqlite3,time;s=sqlite3.connect('/data/askcode.sqlite3');d=sqlite3.connect('/backups/askcode-'+time.strftime('%Y%m%d')+'.sqlite3');s.backup(d);d.close()"
+          find /backups -name 'askcode-*.sqlite3' -mtime +14 -delete
+          sleep 86400
+        done
+
+volumes:
+  askcode-data:
