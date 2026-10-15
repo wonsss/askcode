@@ -15,6 +15,7 @@ from pathlib import Path
 
 from askcode.agent.base import AgentRequest, AgentRunner, ToolSpec
 from askcode.config import RepoConfig
+from askcode.llm.pricing import estimate_cost
 from askcode.pipeline.prompts import build_question, build_system_prompt
 from askcode.pipeline.scoping import DomainMap, LLMUnavailable, Route, Scope, Scoper, route_for
 from askcode.store.db import QueryResult, Store
@@ -30,6 +31,9 @@ REFUSE_TEXT = (
     "이 질문은 AskCode가 답할 수 없는 범위예요. AskCode는 코드와 기획 문서만 읽으며, "
     "실제 사용자 정보·운영 데이터·비밀값에는 접근하지 않습니다. 필요한 경우 담당 부서의 정식 절차로 요청해 주세요."
 )
+LIMIT_TEXT = ("질문 하나에 쓸 수 있는 탐색 한도(비용·횟수)에 도달해 답을 끝맺지 못했어요. "
+              "질문을 더 좁혀서 다시 물어봐 주세요. (예: 화면 하나, 조건 하나)")
+LIMIT_ERRORS = ("error_max_budget_usd", "error_max_turns")
 UNAVAILABLE_TEXT = "지금은 AI 모델을 호출할 수 없어 답하지 못했어요(크레딧·인증 문제). 관리자에게 알려 주세요."
 
 
@@ -88,8 +92,7 @@ class AnswerService:
     def __init__(self, store: Store, repo: RepoConfig, repo_path: Path, runner: AgentRunner, code_tools: CodeTools,
                  max_turns: int = 12, max_budget_usd: float | None = None, *, scoper: Scoper | None = None,
                  domain_map: DomainMap | None = None, doc_tools: DocTools | None = None,
-                 structure_tools: StructureTools | None = None, models: dict[str, str] | None = None,
-                 small_price: tuple[float, float] = (1.0, 5.0)):
+                 structure_tools: StructureTools | None = None, models: dict[str, str] | None = None):
         self.store = store
         self.repo = repo
         self.repo_path = repo_path
@@ -102,7 +105,6 @@ class AnswerService:
         self.doc_tools = doc_tools
         self.structure_tools = structure_tools
         self.models = models or {}
-        self.small_price = small_price
 
     # ---------- 도구 ----------
     def _overview(self) -> str:
@@ -218,9 +220,8 @@ class AnswerService:
     def _small_cost(self, comp) -> float:
         if not comp:
             return 0.0
-        pin, pout = self.small_price
-        return ((comp.input_tokens + comp.cache_write_tokens * 1.25 + comp.cache_read_tokens * 0.1) * pin
-                + comp.output_tokens * pout) / 1_000_000
+        return estimate_cost(comp.model, comp.input_tokens, comp.output_tokens,
+                             comp.cache_read_tokens, comp.cache_write_tokens) or 0.0
 
     async def _scope(self, question: str, forced_domains: list[str] | None) -> tuple[Scope, float]:
         scope_cost = 0.0
@@ -280,7 +281,7 @@ class AnswerService:
             prompt, system, self._tools(query_id, session), route.max_turns or self.max_turns, self.max_budget_usd,
             model=self.models.get(route.tier),
         ))
-        if route.name == "simple" and resp.error and not resp.text.strip():
+        if route.name == "simple" and resp.error and (not resp.text.strip() or resp.error in LIMIT_ERRORS):
             # 소형 모델이 턴 한도 등으로 답을 못 내면 대형 에이전트로 한 번 올린다 (도구로 본 구간은 이어서 쓴다)
             first = resp
             route = Route("agent", "large", self.max_turns)
@@ -288,8 +289,9 @@ class AnswerService:
                 prompt, system, self._tools(query_id, session), route.max_turns, self.max_budget_usd,
                 model=self.models.get(route.tier),
             ))
-            resp.cost_usd += first.cost_usd
-            resp.duration_ms += first.duration_ms
+            for f in ("cost_usd", "duration_ms", "input_tokens", "output_tokens", "cache_read_tokens",
+                      "cache_write_tokens", "num_turns"):
+                setattr(resp, f, getattr(resp, f) + getattr(first, f))
             resp.tool_calls = [*first.tool_calls, *resp.tool_calls]
             scope.reason += f" · 단순 경로 실패({first.error})로 에이전트 재시도"
 
@@ -297,7 +299,10 @@ class AnswerService:
         body, evidence = _split_evidence(resp.text)
         verified, unverified = self._verify(query_id, evidence or resp.text, session, commit)
         has_code = any(c.source == "code" for c in verified)
-        if resp.error and not body:
+        if resp.error in LIMIT_ERRORS:
+            # 한도로 끊기면 마지막 텍스트가 중간 독백("이제 X를 확인하겠습니다")일 수 있어 답변으로 쓰지 않는다
+            confidence, body, verified = "low", LIMIT_TEXT, []
+        elif resp.error and not body:
             confidence = "low"
             body = "답변을 만들지 못했습니다. 잠시 후 다시 시도하거나 질문 범위를 좁혀 주세요."
         elif has_code and not unverified:

@@ -152,3 +152,44 @@ async def test_simple_route_failure_escalates_to_agent(store, tools, repo_cfg, r
     a = await svc.answer("의안 상세는?")
     assert runner.models == ["s", "L"] and a.route == "agent" and a.body == "답"
     assert abs(a.cost_usd - 0.06) < 1e-9 and a.tool_calls == 1 and "에이전트 재시도" in a.scope.reason
+
+
+def test_cost_is_computed_from_tokens():
+    from askcode.llm.pricing import estimate_cost
+
+    # 슬랙 실측: 앱 하단 탭 질문의 에이전트 토큰 (Console 로그와 일치)
+    cost = estimate_cost("claude-haiku-5-5", 6, 1049, cache_read_tokens=23198, cache_write_tokens=11524)
+    assert abs(cost - 0.0022) < 0.0001
+    assert estimate_cost("claude-sonnet-5-5", 1_000_000, 0) == 2.0
+    assert estimate_cost("unknown-model", 1, 1) is None
+
+
+async def test_budget_stop_does_not_leak_partial_text(store, tools, repo_cfg, repo_dir):
+    class OverBudget:
+        async def run(self, request):
+            return AgentResponse(text="이제 서비스 코드를 확인하겠습니다.", model="L", error="error_max_budget_usd", cost_usd=0.5)
+
+    svc = AnswerService(store, repo_cfg, repo_dir, OverBudget(), tools, domain_map=DMAP, models={"small": "s", "large": "L"},
+                        scoper=FakeScoper(Scope(kind="multi_hop", domains=["bills"], confidence="high")))
+    a = await svc.answer("의안 흐름 전부")
+    assert a.confidence == "low" and "탐색 한도" in a.body and "확인하겠습니다" not in a.body and not a.citations
+
+
+async def test_escalation_sums_tokens_and_handles_partial_text(store, tools, repo_cfg, repo_dir):
+    class Partial:
+        def __init__(self):
+            self.models = []
+
+        async def run(self, request):
+            self.models.append(request.model)
+            if request.model == "s":
+                return AgentResponse(text="찾는 중…", model="s", error="error_max_turns", input_tokens=10, output_tokens=5)
+            return AgentResponse(text="답\n\n근거:\n- apps/api/src/bills/bills.controller.ts:1-2 — x", model="L",
+                                 input_tokens=20, output_tokens=7)
+
+    runner = Partial()
+    svc = AnswerService(store, repo_cfg, repo_dir, runner, tools, domain_map=DMAP, models={"small": "s", "large": "L"},
+                        scoper=FakeScoper(Scope(kind="simple", domains=["bills"], confidence="high")))
+    a = await svc.answer("의안 상세는?")
+    row = store.execute("SELECT input_tokens, output_tokens FROM query_results WHERE query_id=?", (a.query_id,)).fetchone()
+    assert runner.models == ["s", "L"] and a.body == "답" and tuple(row) == (30, 12)

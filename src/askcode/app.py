@@ -98,6 +98,5 @@ def build_container(settings: Settings | None = None) -> Container:
         scoper=Scoper(llm, domain_map), domain_map=domain_map, doc_tools=DocTools(store),
         structure_tools=StructureTools(store, repo.name, repo_path),
         models={"small": settings.model_small, "large": settings.model_large},
-        small_price=(settings.price_small_input, settings.price_small_output),
     )
     return Container(settings, store, repo, sync, service, llm, domain_map)

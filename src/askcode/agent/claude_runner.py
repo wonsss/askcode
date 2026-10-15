@@ -25,6 +25,7 @@ from claude_agent_sdk import (
 )
 
 from askcode.agent.base import AgentRequest, AgentResponse, ToolSpec
+from askcode.llm.pricing import estimate_cost
 
 log = logging.getLogger(__name__)
 
@@ -97,7 +98,9 @@ class ClaudeAgentRunner:
                     response.output_tokens = usage.get("output_tokens", 0) or 0
                     response.cache_read_tokens = usage.get("cache_read_input_tokens", 0) or 0
                     response.cache_write_tokens = usage.get("cache_creation_input_tokens", 0) or 0
-                    response.cost_usd = message.total_cost_usd or 0.0
+                    est = estimate_cost(response.model, response.input_tokens, response.output_tokens,
+                                        response.cache_read_tokens, response.cache_write_tokens)
+                    response.cost_usd = est if est is not None else (message.total_cost_usd or 0.0)
                     response.num_turns = message.num_turns
                     if message.result:
                         texts = [message.result]
