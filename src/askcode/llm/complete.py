@@ -38,7 +38,8 @@ def _thinking(tier: Tier) -> dict:
 class LLM:
     def __init__(self, settings: Settings):
         key = settings.anthropic_api_key.get_secret_value() if settings.anthropic_api_key else None
-        self._client = AsyncAnthropic(api_key=key)
+        # SDK 기본 타임아웃은 10분이라 응답이 멈추면 슬랙 질문도 그만큼 멈춘다(평가 판정에서 실측 600초).
+        self._client = AsyncAnthropic(api_key=key, timeout=60.0, max_retries=2)
         self._models = {"small": settings.model_small, "large": settings.model_large}
 
     async def complete(
