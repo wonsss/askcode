@@ -23,12 +23,17 @@ services:
       driver: json-file
       options: { max-size: "20m", max-file: "5" }
 
-  # 감사 로그 일일 백업 (SQLite online backup, 14일 보관)
+  # 감사 로그 일일 백업 + 정리 (docs/operations.md). 감사 로그는 영구 보존, 로컬 백업 파일만 14일 보관.
+  # 서버가 통째로 사라져도 남도록 ASKCODE_BACKUP_UPLOAD_CMD로 서버 밖에 복사한다(예: rclone, aws s3 cp).
   backup:
     image: askcode:latest
     depends_on: [askcode]
     restart: unless-stopped
     user: "0:0"                        # 호스트 ./backups 쓰기용
+    env_file: .env
+    environment:
+      ASKCODE_DATA_DIR: /data
+      ASKCODE_BACKUP_DIR: /backups
     volumes:
       - askcode-data:/data              # WAL 모드라 읽기 전용 마운트로는 백업 API가 동작하지 않음
       - ./backups:/backups
@@ -36,8 +41,7 @@ services:
     command:
       - |
         while true; do
-          python -c "import sqlite3,time;s=sqlite3.connect('/data/askcode.sqlite3');d=sqlite3.connect('/backups/askcode-'+time.strftime('%Y%m%d')+'.sqlite3');s.backup(d);d.close()"
-          find /backups -name 'askcode-*.sqlite3' -mtime +14 -delete
+          askcode backup && askcode restore-check && askcode maintenance || echo "backup failed $(date)" >&2
           sleep 86400
         done
 

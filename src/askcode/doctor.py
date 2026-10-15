@@ -45,6 +45,34 @@ def _secret(value, prefix: str | None = None) -> tuple[bool, str]:
     return True, f"설정됨 ({v[:5]}…)"
 
 
+def db_checks(s: Settings, st) -> list[Check]:
+    """DB 운영 점검: 무결성, 스키마 버전, 크기·디스크 여유, 최근 백업 (docs/operations.md)."""
+    import shutil
+    import time
+
+    from askcode.ops import latest_backup
+    from askcode.store.db import SCHEMA_VERSION
+
+    out = []
+    qc = st.execute("PRAGMA quick_check").fetchone()[0]
+    out.append(Check(OK if qc == "ok" else FAIL, "DB 무결성", qc))
+    v = st.schema_version
+    out.append(Check(OK if v == SCHEMA_VERSION else WARN, "DB 스키마", f"v{v}" + ("" if v == SCHEMA_VERSION
+                     else f" (코드 기준 v{SCHEMA_VERSION})"), required=False))
+    size = sum(p.stat().st_size for p in s.db_path.parent.glob(s.db_path.name + "*") if p.is_file())
+    free = shutil.disk_usage(s.db_path.parent).free
+    out.append(Check(OK if free > 2e9 else WARN, "DB 용량", f"{size / 1e6:.1f}MB · 디스크 여유 {free / 1e9:.1f}GB",
+                     required=False))
+    last = latest_backup(s.backup_dir)
+    if not last:
+        out.append(Check(WARN, "최근 백업", f"없음 — askcode backup ({s.backup_dir})", required=False))
+    else:
+        age_h = (time.time() - last.stat().st_mtime) / 3600
+        out.append(Check(OK if age_h < 36 else WARN, "최근 백업", f"{last.name} · {age_h:.0f}시간 전"
+                         + ("" if s.backup_upload_cmd else " · 서버 밖 복사 미설정"), required=False))
+    return out
+
+
 def offline_checks(s: Settings) -> list[Check]:
     checks: list[Check] = []
     py = sys.version_info
@@ -97,6 +125,7 @@ def offline_checks(s: Settings) -> list[Check]:
         doc_info = ", ".join(f"{r['source']} {r['n']}" for r in docs) or "없음"
         checks.append(Check(OK if n else WARN, "인덱스", f"파일 {n}개 · 커밋 {commit['commit_sha'][:7] if commit else '-'} · 문서 {doc_info}"
                             if n else "비어 있음 — askcode sync", required=False))
+        checks.extend(db_checks(s, st))
     else:
         checks.append(Check(WARN, "인덱스", "아직 없음 — askcode sync", required=False))
     return checks

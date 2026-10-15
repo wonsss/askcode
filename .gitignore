@@ -9,3 +9,4 @@ data/
 secrets/
 *.pem
 .DS_Store
+backups/

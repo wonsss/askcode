@@ -21,6 +21,10 @@ class Settings(BaseSettings):
 
     # 경로
     data_dir: Path = Field(default=Path("data"), description="클론·DB 저장 위치")
+    # DB 운영 (docs/operations.md). 감사 로그는 영구 보존, 백업 파일만 keep_days 지나면 로컬에서 정리
+    backup_dir: Path = Field(default=Path("backups"), description="로컬 백업 위치")
+    backup_keep_days: int = 14
+    backup_upload_cmd: str | None = Field(default=None, description="서버 밖 복사 명령. {file}이 백업 경로로 바뀜")
     config_dir: Path = Field(default=Path("config"))
 
     # Claude

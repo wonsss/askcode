@@ -6,6 +6,10 @@
   askcode serve                            슬랙 봇 실행 (주기적 동기화 포함)
   askcode stats                            감사 로그 요약
   askcode console [--port 8787]            웹 콘솔 (로컬 전용, 읽기 전용, API 비용 없음)
+  askcode backup [--dest DIR]              감사 로그 백업 (+ ASKCODE_BACKUP_UPLOAD_CMD로 서버 밖 복사)
+  askcode restore-check [백업 파일]         백업 복구 확인 (무결성·질문 수)
+  askcode maintenance [--vacuum]           오래된 커밋 스냅숏·WAL 정리
+  askcode redact <query_id> --reason "…"   질문 텍스트 가림 (개인정보 유입 시)
   askcode doctor [--online]                환경 점검 (도구·설정·인덱스, --online이면 연결까지)
 """
 
@@ -182,6 +186,65 @@ def cmd_console(port: int) -> None:
     uvicorn.run(create_app(data), host="127.0.0.1", port=port, log_level="warning")
 
 
+def cmd_backup(dest: str | None, keep_days: int | None) -> None:
+    from askcode.ops import backup
+    from askcode.settings import Settings
+
+    s = Settings()
+    r = backup(s.db_path, Path(dest) if dest else s.backup_dir, keep_days or s.backup_keep_days, s.backup_upload_cmd)
+    up = {None: "서버 밖 복사 설정 없음(ASKCODE_BACKUP_UPLOAD_CMD)", True: "서버 밖 복사 완료"}[r.uploaded]
+    print(f"백업 {r.path} · {r.bytes / 1e6:.1f}MB · 질문 {r.queries}건 · sha256 {r.sha256[:12]}… · "
+          f"오래된 백업 {len(r.pruned)}개 정리 · {up}")
+
+
+def cmd_restore_check(path: str | None) -> None:
+    from askcode.ops import latest_backup, verify_backup
+    from askcode.settings import Settings
+
+    target = Path(path) if path else latest_backup(Settings().backup_dir)
+    if not target or not target.exists():
+        sys.exit("확인할 백업 파일이 없습니다. askcode backup을 먼저 실행하세요.")
+    r = verify_backup(target)
+    ok = r["integrity"] == "ok"
+    print(f"{'✅' if ok else '❌'} {target} · 무결성 {r['integrity']} · 스키마 v{r['schema_version']} · "
+          f"질문 {r['queries']}건(결과 {r['results']}건) · 마지막 질문 {r['latest']}")
+    if not ok:
+        sys.exit(1)
+
+
+def cmd_maintenance(vacuum: bool) -> None:
+    import sqlite3
+
+    from askcode.config import load_repos
+    from askcode.ops import maintenance
+    from askcode.settings import Settings
+    from askcode.store.db import Store
+
+    s = Settings()
+    Store(s.db_path)  # 스키마·마이그레이션 적용
+    before = s.db_path.stat().st_size
+    conn = sqlite3.connect(s.db_path, isolation_level=None)
+    try:
+        r = maintenance(conn, load_repos(s.config_dir)[0].name, vacuum=vacuum)
+    finally:
+        conn.close()
+    print(f"커밋 스냅숏 {r['snapshots_kept']}개 유지 · {r['snapshots_dropped']}개({r['rows_dropped']}행) 정리 · "
+          f"WAL 정리 · DB {before / 1e6:.1f}MB → {s.db_path.stat().st_size / 1e6:.1f}MB"
+          + (" · VACUUM" if r["vacuumed"] else ""))
+
+
+def cmd_redact(query_id: str, reason: str, operator: str | None) -> None:
+    import getpass
+
+    from askcode.settings import Settings
+    from askcode.store.db import Store
+
+    who = operator or getpass.getuser()
+    if not Store(Settings().db_path).redact(query_id, who, reason):
+        sys.exit(f"질문을 찾을 수 없습니다: {query_id}")
+    print(f"가림 완료: {query_id} (질문·답·도구 입력 텍스트). 행과 가림 기록은 남습니다. 처리자 {who}, 사유: {reason}")
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(prog="askcode")
@@ -199,6 +262,17 @@ def main() -> None:
     ev.add_argument("--concurrency", type=int, default=2)
     sub.add_parser("serve")
     sub.add_parser("stats")
+    bk = sub.add_parser("backup", help="감사 로그 백업 (무결성 확인, 오래된 백업 정리, 서버 밖 복사)")
+    bk.add_argument("--dest")
+    bk.add_argument("--keep-days", type=int)
+    rc = sub.add_parser("restore-check", help="백업 파일 복구 확인 (기본: 가장 최근 백업)")
+    rc.add_argument("path", nargs="?")
+    mt = sub.add_parser("maintenance", help="오래된 커밋 스냅숏·WAL 정리 (감사 로그는 건드리지 않음)")
+    mt.add_argument("--vacuum", action="store_true")
+    rd = sub.add_parser("redact", help="질문 하나의 텍스트를 가림 (개인정보 유입 시, 행은 남김)")
+    rd.add_argument("query_id")
+    rd.add_argument("--reason", required=True)
+    rd.add_argument("--operator")
     con = sub.add_parser("console", help="웹 콘솔 (로컬 전용, 읽기 전용)")
     con.add_argument("--port", type=int, default=8787)
     dr = sub.add_parser("doctor")
@@ -216,6 +290,14 @@ def main() -> None:
         cmd_eval(args.ids, args.limit, args.concurrency)
     elif args.cmd == "serve":
         cmd_serve()
+    elif args.cmd == "backup":
+        cmd_backup(args.dest, args.keep_days)
+    elif args.cmd == "restore-check":
+        cmd_restore_check(args.path)
+    elif args.cmd == "maintenance":
+        cmd_maintenance(args.vacuum)
+    elif args.cmd == "redact":
+        cmd_redact(args.query_id, args.reason, args.operator)
     elif args.cmd == "console":
         cmd_console(args.port)
     elif args.cmd == "stats":
