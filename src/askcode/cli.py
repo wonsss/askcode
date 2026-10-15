@@ -60,10 +60,11 @@ def cmd_ask(question: str, domains: str | None) -> None:
         print(f"  ⚠️ {x.path}:{x.start}-{x.end} ({x.reason})")
     if a.attachment:
         filename, content = a.attachment
-        out = Path(c.settings.data_dir) / "wireframes" / filename
+        flow = a.attachment_kind == "flow"
+        out = Path(c.settings.data_dir) / ("diagrams" if flow else "wireframes") / filename
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(content, encoding="utf-8")
-        print(f"\n🖼 와이어프레임: {out}")
+        print(f"\n{'🧭 흐름도' if flow else '🖼 와이어프레임'}: {out}")
     elif a.route == "wireframe":
         print("\n⚠️ 와이어프레임 HTML이 없습니다")
     if a.config_dependent:

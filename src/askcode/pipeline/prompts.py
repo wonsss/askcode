@@ -75,11 +75,26 @@ def build_system_prompt(repo_name: str, repo_description: str, ref: str, commit:
     )
 
 
+# 흐름도 지시는 정책·흐름 질문에만 질문 뒤에 붙인다(시스템 프롬프트를 그대로 둬 캐시를 유지한다)
+FLOW_KINDS = ("policy", "multi_hop")
+FLOW_INSTRUCTION = """
+## 흐름도 (선택)
+답에 조건 분기가 2개 이상 있으면(예: 설정 여부 → 시각 조건 → 결과), "근거:" 목록 바로 앞에 ```flow 코드 블록 하나로 흐름 명세를 붙입니다. 분기가 1개 이하면 쓰지 않습니다. 시스템이 그림으로 그려 따로 올리며, 본문 600자 제한에 넣지 않습니다.
+{{"title":"짧은 제목","nodes":[{{"id":"a","type":"start","text":"…","ref":"파일:줄-줄"}}],"edges":[{{"from":"a","to":"b","label":"예"}}]}}
+- 첫 노드가 시작입니다. type: start(시작) · decision(조건) · step(처리) · result(사용자가 겪는 결과). 노드 4~12개.
+- decision의 text는 질문형 조건(예: "매일 받기로 설정했나?"), 나가는 엣지 label은 "예"/"아니오" 또는 짧은 값입니다.
+- text는 25자 안팎의 쉬운 말이고 코드 식별자를 쓰지 않습니다.
+- ref는 그 노드를 보여 주는 구간으로, 도구로 실제 읽은 곳만 적고 "근거:" 목록에도 같은 구간을 적습니다. 모르면 비웁니다.
+- JSON은 노드·엣지 하나를 한 줄로, 공백 없이 짧게 씁니다.
+"""
+
+
 def build_question(question: str, kind: str, domains: list[str], keywords: list[str], extra: str = "") -> str:
-    return QUESTION_TEMPLATE.format(
+    q = QUESTION_TEMPLATE.format(
         question=question, kind=kind, domains=", ".join(domains) or "레포 전체",
         keywords=", ".join(keywords) or "-", extra=extra,
     )
+    return q + FLOW_INSTRUCTION.format() if kind in FLOW_KINDS else q
 
 
 WIREFRAME_TEMPLATE = """\
@@ -124,4 +139,59 @@ WIREFRAME_TEMPLATE = """\
 def build_wireframe_question(question: str, domains: list[str], keywords: list[str], extra: str = "") -> str:
     return WIREFRAME_TEMPLATE.format(
         question=question, domains=", ".join(domains) or "레포 전체", keywords=", ".join(keywords) or "-", extra=extra,
+    )
+
+
+CHANGE_MOCKUP_TEMPLATE = """\
+{question}
+
+---
+[화면 변경안 목업 요청 — 시스템이 붙인 메모]
+- 참고할 도메인: {domains}
+- 검색 힌트: {keywords}
+{extra}
+{screen}
+
+이 요청은 첨부한 기존 화면에 기능·요소를 추가·변경했을 때의 모습을 '현재 vs 변경안' 목업으로 보여 주는 일입니다.
+시스템 프롬프트의 답변 형식(600자, 식별자 금지) 대신 아래를 따릅니다.
+
+## 작업 순서 (도구 호출 8회 이내, 파일은 필요한 구간만)
+1. 스크린샷 문구로 화면 코드를 특정합니다: find_screen(화면 이름·키워드) 또는 code_search(고정 문구, 한국어 그대로).
+2. 화면 파일에서 구성(헤더·버튼·목록·하단 요소)과 화면이 쓰는 API를 확인합니다. 웹뷰로 열리는 화면이면 웹 쪽 화면 파일도 찾습니다.
+3. 현재 화면을 스크린샷 배치와 코드 구성을 근거로 재구성합니다. 스크린샷에 [가림]으로 표시된 사용자 데이터는 "작성자", "의원 이름" 같은 자리표시자로 씁니다.
+4. 요청한 변경을 기존 화면 관례(버튼 위치·아이콘 자리·시트 형태)에 맞춰 변경안에 반영합니다. 정해지지 않은 기획 결정은 "가정"으로 적습니다.
+
+## 출력 (이 순서 그대로, 짧게)
+(a) 기획자용 설명 — 코드 식별자는 쓰지 않습니다(마지막 개발자 참고 줄만 예외).
+  - 첫 줄: **굵은 한 문장 요약** (무엇이 어디에 생기는지)
+  - "바뀌는 점:" 2~4개, 한 줄씩 (사용자가 겪는 동작으로)
+  - "가정:" 1~3개, 한 줄씩
+  - 마지막 줄: 🔧 개발자 참고: 영향받는 코드 위치 — 화면 파일, 쓰는 API(메서드+경로), 웹뷰면 웹 쪽 파일을 `백틱`으로 쉼표 구분. 파일은 줄 번호 없이 경로만 쓰고, 각 파일은 아래 근거에 줄 번호와 함께 반드시 넣습니다. 도구로 확인하지 못한 위치는 쓰지 않습니다.
+(b) ```json 코드 블록 하나 — 화면 명세. 화면은 정확히 2개: "variant":"current"(현재)와 "variant":"proposed"(변경안).
+  - 두 프레임은 같은 요소 순서를 유지하고, 변경안에서 새로 추가·바뀐 요소에만 "new":true를 답니다(점선 테두리와 🆕로 그려집니다).
+  - note는 현재 프레임 1~3개(재구성 근거가 된 부분), 변경안 프레임은 new 요소마다 1개.
+(c) "근거:" 목록 — 화면 파일·API·웹 쪽 파일 구간 (도구로 실제 본 구간만)
+
+## 화면 명세 형식
+{{"title": "...", "platform": "app" 또는 "web", "screens": [
+ {{"name": "현재: 화면 이름", "variant": "current", "elements": [요소, ...]}},
+ {{"name": "변경안: 화면 이름", "variant": "proposed", "elements": [요소, ...]}}]}}
+- 요소는 위에서 아래 순서로, 화면당 4~10개.
+- 요소 type과 필드:
+  header{{title,left,right,large}} · search{{placeholder}} · tabs{{items,active}} · chips{{items,active}}
+  card_list{{card:{{tag,title,desc,meta,thumb}},count}} · list{{items:[문자열 또는 {{title,meta,indent}}]}} · section{{title}}
+  text{{text,size:title|body|meta}} · form_field{{label,placeholder,tall,select}} · button{{label,primary,full}}
+  box{{label,height}}(이미지·차트 자리) · notice{{text}} · table{{columns,rows}}(웹) · columns{{cols:[[요소..],[요소..]],widths}}(웹 좌우 배치)
+  fab{{label}} · input_bar{{placeholder,button}} · bottom_tabs{{items,active}} (앱 하단 고정 요소)
+- 실제 사용자 정보·비밀값은 쓰지 않습니다. JSON은 요소 하나를 한 줄로, 공백 없이 짧게 씁니다. 기본값은 생략합니다.
+
+예: {{"type":"header","left":"뒤로","title":"의안 상세","right":"공유","new":true,"note":"공유 버튼, 탭하면 공유 시트"}}
+"""
+
+
+def build_change_mockup_question(question: str, domains: list[str], keywords: list[str], screen: str,
+                                 extra: str = "") -> str:
+    return CHANGE_MOCKUP_TEMPLATE.format(
+        question=question, domains=", ".join(domains) or "레포 전체", keywords=", ".join(keywords) or "-",
+        extra=extra, screen=screen,
     )

@@ -48,19 +48,22 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
         return screenshot_context(texts, desc) if texts else ""
 
     async def deliver(client, channel: str, ts: str, thread_ts: str, answer) -> None:
-        """답변 메시지를 갱신하고, 와이어프레임이면 HTML 파일을 스레드에 올린다."""
+        """답변 메시지를 갱신하고, 와이어프레임·흐름도가 있으면 HTML 파일을 스레드에 올린다."""
         note = None
         if answer.attachment:
             filename, content = answer.attachment
+            what = "흐름도" if answer.attachment_kind == "flow" else "와이어프레임"
             try:
                 await client.files_upload_v2(channel=channel, thread_ts=thread_ts, filename=filename, content=content,
                                              title=filename.removesuffix(".html"))
-                note = "🖼 와이어프레임 HTML 파일을 이 스레드에 올렸어요. 내려받아 브라우저로 열어 보세요."
+                note = ("🧭 흐름도를 올렸어요. 조건별 갈래와 근거를 이 스레드의 HTML 파일에서 볼 수 있어요."
+                        if answer.attachment_kind == "flow"
+                        else "🖼 와이어프레임 HTML 파일을 이 스레드에 올렸어요. 내려받아 브라우저로 열어 보세요.")
             except Exception as exc:
-                log.warning("wireframe upload failed: %s", exc)
+                log.warning("%s upload failed: %s", answer.attachment_kind, exc)
                 missing = "missing_scope" in str(exc)
-                note = ("⚠️ 파일 업로드 권한(files:write)이 없어 와이어프레임을 올리지 못했어요. 슬랙 앱을 다시 설치해 주세요."
-                        if missing else "⚠️ 와이어프레임 파일을 올리지 못했어요. 잠시 후 다시 시도해 주세요.")
+                note = (f"⚠️ 파일 업로드 권한(files:write)이 없어 {what}를 올리지 못했어요. 슬랙 앱을 다시 설치해 주세요."
+                        if missing else f"⚠️ {what} 파일을 올리지 못했어요. 잠시 후 다시 시도해 주세요.")
         await client.chat_update(channel=channel, ts=ts, text=fallback_text(answer), blocks=answer_blocks(answer, note=note))
 
     async def handle_question(client, channel: str, user: str, text: str, thread_ts: str, files: list[dict]) -> None:

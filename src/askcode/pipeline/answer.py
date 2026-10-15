@@ -16,10 +16,15 @@ from pathlib import Path
 from askcode.agent.base import AgentRequest, AgentRunner, ToolSpec
 from askcode.config import RepoConfig
 from askcode.llm.pricing import estimate_cost
-from askcode.pipeline.prompts import build_question, build_system_prompt, build_wireframe_question
-from askcode.pipeline.scoping import DomainMap, LLMUnavailable, Route, Scope, Scoper, route_for
+from askcode.pipeline.flowchart import FlowSpecError, extract_flow, flow_filename, parse_flow, render_flow
+from askcode.pipeline.prompts import (
+    build_change_mockup_question, build_question, build_system_prompt, build_wireframe_question,
+)
+from askcode.pipeline.scoping import DomainMap, LLMUnavailable, Route, Scope, Scoper, apply_screenshot_rule, route_for
+from askcode.pipeline.screenshot import ScreenCapture, screenshot_block, screenshot_context
 from askcode.pipeline.wireframe import (
-    WireframeSpecError, extract_html, extract_spec, parse_spec, render_spec, sanitize_html, wireframe_filename,
+    WireframeSpecError, extract_html, extract_spec, is_comparison, parse_spec, render_spec, sanitize_html,
+    wireframe_filename,
 )
 from askcode.store.db import QueryResult, Store
 from askcode.tools.code_tools import CodeTools, ToolSession
@@ -39,22 +44,36 @@ UNSUPPORTED_TEXT = (
     "만들 수 있어요. 코드 수정·배포·문서 작성은 하지 않습니다."
 )
 WIREFRAME_MISSING = "와이어프레임을 그리지 못했어요. 화면을 하나로 좁혀 다시 요청해 주세요. (예: \"커뮤니티 글 목록 화면 와이어프레임\")"
+COMPARISON_MISSING = "현재 화면과 변경안을 나란히 그리지 못해 받은 그림만 올렸어요. 화면 하나와 바꿀 점 하나로 좁혀 다시 요청해 주세요."
+DEV_NOTE_PATH_RE = re.compile(r"`([\w@.\-\[\]()가-힣]+(?:/[\w@.\-\[\]()가-힣]+)+\.\w+)`")
 LIMIT_TEXT = ("질문 하나에 쓸 수 있는 탐색 한도(비용·횟수)에 도달해 답을 끝맺지 못했어요. "
               "질문을 더 좁혀서 다시 물어봐 주세요. (예: 화면 하나, 조건 하나)")
 LIMIT_ERRORS = ("error_max_budget_usd", "error_max_turns")
 UNAVAILABLE_TEXT = "지금은 AI 모델을 호출할 수 없어 답하지 못했어요(크레딧·인증 문제). 관리자에게 알려 주세요."
 
 
-def _wireframe_attachment(text: str, filename: str) -> tuple[tuple[str, str] | None, str]:
-    """명세(```json)가 있으면 렌더러로 그리고, 없으면 자유 HTML을 정제한다. 명세가 깨지면 첨부 없음."""
+def _wireframe_attachment(text: str, filename: str) -> tuple[tuple[str, str] | None, str, dict | None]:
+    """명세(```json)가 있으면 렌더러로 그리고, 없으면 자유 HTML을 정제한다. 명세가 깨지면 첨부 없음.
+
+    (첨부, 명세 블록을 뺀 텍스트, 읽은 명세 또는 None)
+    """
     raw_spec, rest = extract_spec(text)
     if raw_spec is not None:
         try:
-            return (filename, render_spec(parse_spec(raw_spec))), rest
+            spec = parse_spec(raw_spec)
+            return (filename, render_spec(spec)), rest, spec
         except WireframeSpecError:
-            return None, rest
+            return None, rest, None
     raw_html, rest = extract_html(text)
-    return ((filename, sanitize_html(raw_html)) if raw_html else None), rest
+    return ((filename, sanitize_html(raw_html)) if raw_html else None), rest, None
+
+
+def _mark_unchecked_dev_paths(body: str, verified_paths: set[str]) -> str:
+    """'🔧 개발자 참고' 줄의 파일 경로 중 검증된 근거에 없는 것에 표시를 붙인다. 근거 없는 위치를 단정하지 않게."""
+    def mark(m: re.Match) -> str:
+        return m.group(0) if m.group(1) in verified_paths else f"{m.group(0)}(근거 미확인)"
+    return "\n".join(DEV_NOTE_PATH_RE.sub(mark, line) if line.lstrip().startswith("🔧") else line
+                     for line in body.splitlines())
 
 
 @dataclass
@@ -87,7 +106,10 @@ class Answer:
     config_dependent: bool = False
     tool_calls: int = 0
     domain_names: list[str] = field(default_factory=list)  # 슬랙 표시용 도메인 이름
-    attachment: tuple[str, str] | None = None  # (파일 이름, 정제된 HTML) — 와이어프레임
+    attachment: tuple[str, str] | None = None  # (파일 이름, 정제된 HTML) — 와이어프레임·흐름도
+    attachment_kind: str | None = None  # wireframe | flow
+    comparison: bool = False  # 스크린샷 기반 '현재 vs 변경안' 목업
+    vision_cost_usd: float = 0.0  # 스크린샷 문구 추출 비용 (cost_usd에 포함)
 
 
 def _split_evidence(text: str) -> tuple[str, str]:
@@ -239,6 +261,17 @@ class AnswerService:
                 self.store.log_citation(query_id, source, path, start, end, verified, reason)
         return ok, bad
 
+    def _ref_ok(self, ref: str, session: ToolSession) -> bool:
+        """흐름도 노드의 근거(파일:줄)가 인덱스에 있고 도구로 실제 본 구간인지."""
+        m = CITATION_RE.search(ref)
+        if not m:
+            return False
+        path, start = m.group(1), int(m.group(2))
+        end = int(m.group(3) or start)
+        if not (self.store.file_info(self.repo.name, path) or self.store.doc_file(path)):
+            return False
+        return session.covers(path, min(start, end), max(start, end))
+
     # ---------- 실행 ----------
     def _small_cost(self, comp) -> float:
         if not comp:
@@ -246,34 +279,42 @@ class AnswerService:
         return estimate_cost(comp.model, comp.input_tokens, comp.output_tokens,
                              comp.cache_read_tokens, comp.cache_write_tokens) or 0.0
 
-    async def _scope(self, question: str, forced_domains: list[str] | None) -> tuple[Scope, float]:
+    async def _scope(self, question: str, forced_domains: list[str] | None, has_image: bool = False) -> tuple[Scope, float]:
         scope_cost = 0.0
         if forced_domains is not None:
             scope = Scope(kind="multi_hop", domains=forced_domains, confidence="high", forced=True, reason="사용자가 범위 선택")
             if self.scoper:
-                s2, comp = await self.scoper.scope(question)
+                s2, comp = await self.scoper.scope(question, has_image=has_image)
                 scope.kind, scope.keywords, scope_cost = s2.kind if s2.kind not in ("broad", "out_of_scope", "unsupported") else "multi_hop", s2.keywords, self._small_cost(comp)
         elif self.scoper:
-            scope, comp = await self.scoper.scope(question)
+            scope, comp = await self.scoper.scope(question, has_image=has_image)
             scope_cost = self._small_cost(comp)
         else:
             scope = Scope(kind="multi_hop", confidence="low", reason="스코핑 미사용")
-        return scope, scope_cost
+        return apply_screenshot_rule(scope, question, has_image), scope_cost
 
     async def answer(self, question: str, source: str = "cli", user_id: str | None = None,
                      channel: str | None = None, thread_ts: str | None = None,
-                     forced_domains: list[str] | None = None, extra_context: str = "") -> Answer:
+                     forced_domains: list[str] | None = None, extra_context: str = "",
+                     screenshot: ScreenCapture | None = None) -> Answer:
+        """screenshot: 첨부 이미지에서 읽은 문구·배치(이미지 자체는 받지 않는다). 추출 비용은 질문 비용에 합산한다."""
         commit = self.store.get_repo_commit(self.repo.name) or "unknown"
         query_id = self.store.log_query(question, source, user_id, channel, thread_ts, commit)
+        has_image = bool(screenshot)
+        vision_cost = screenshot.cost_usd if screenshot is not None else 0.0
 
         # 1) 스코핑
         try:
-            scope, scope_cost = await self._scope(question, forced_domains)
+            scope, scope_cost = await self._scope(question, forced_domains, has_image)
         except LLMUnavailable as exc:
             self.store.log_result(query_id, QueryResult(status="error", answer=UNAVAILABLE_TEXT, confidence="low",
-                                                        model=self.models.get("small"), error=str(exc), route="unavailable"))
-            return Answer(query_id, UNAVAILABLE_TEXT, [], "low", commit, status="error", route="unavailable", error=str(exc))
+                                                        model=self.models.get("small"), error=str(exc), route="unavailable",
+                                                        cost_usd=vision_cost))
+            return Answer(query_id, UNAVAILABLE_TEXT, [], "low", commit, status="error", route="unavailable", error=str(exc),
+                          cost_usd=vision_cost, vision_cost_usd=vision_cost)
+        scope_cost += vision_cost
         route = route_for(scope) if (self.scoper or forced_domains is not None) else Route("agent", "large", self.max_turns)
+        comparison = route.name == "wireframe" and has_image
 
         # 2) 거절·되묻기는 에이전트 없이 끝낸다
         if route.name in ("refuse", "clarify"):
@@ -286,7 +327,7 @@ class AnswerService:
             self.store.log_result(query_id, QueryResult(status=route.name, answer=body, confidence=None, model=self.models.get("small"),
                                                         cost_usd=scope_cost, scope=scope.to_json(), route=route.name))
             return Answer(query_id, body, [], "low", commit, status=route.name, route=route.name, scope=scope,
-                          options=options, cost_usd=scope_cost)
+                          options=options, cost_usd=scope_cost, vision_cost_usd=vision_cost)
 
         # 3) 에이전트
         session = ToolSession()
@@ -297,9 +338,13 @@ class AnswerService:
         extra = ""
         if hints:
             extra += f"- 용어 힌트: {hints}\n"
+        if has_image and not comparison and not extra_context:
+            extra_context = screenshot_context(screenshot.texts, screenshot.description)
         if extra_context:
             extra += f"- 첨부 맥락: {extra_context}\n"
-        if route.name == "wireframe":
+        if comparison:
+            prompt = build_change_mockup_question(question, scope.domains, scope.keywords, screenshot_block(screenshot), extra)
+        elif route.name == "wireframe":
             prompt = build_wireframe_question(question, scope.domains, scope.keywords, extra)
         else:
             prompt = build_question(question, scope.kind, scope.domains, scope.keywords, extra)
@@ -322,12 +367,26 @@ class AnswerService:
             scope.reason += f" · 단순 경로 실패({first.error})로 에이전트 재시도"
 
         # 4) 인용 검증과 확신도
-        attachment = None
+        attachment, attachment_kind, flow, spec = None, None, None, None
         text = resp.text
         if route.name == "wireframe":
-            attachment, text = _wireframe_attachment(resp.text, wireframe_filename(question, query_id))
+            filename = wireframe_filename(question, query_id, prefix="mockup" if comparison else "wireframe")
+            attachment, text, spec = _wireframe_attachment(resp.text, filename)
+            attachment_kind = "wireframe" if attachment else None
+        else:
+            raw_flow, text = extract_flow(resp.text)  # 명세는 본문에 남기지 않는다
+            if raw_flow is not None:
+                try:
+                    flow = parse_flow(raw_flow)
+                except FlowSpecError:
+                    flow = None  # 흐름도 없이 답변만 보낸다
         body, evidence = _split_evidence(text)
         verified, unverified = self._verify(query_id, evidence or resp.text, session, commit)
+        if comparison:
+            body = _mark_unchecked_dev_paths(body, {c.path for c in verified})
+        if flow and resp.error not in LIMIT_ERRORS:
+            attachment = (flow_filename(question, query_id), render_flow(flow, lambda ref: self._ref_ok(ref, session)))
+            attachment_kind = "flow"
         has_code = any(c.source == "code" for c in verified)
         if resp.error in LIMIT_ERRORS:
             # 한도로 끊기면 마지막 텍스트가 중간 독백("이제 X를 확인하겠습니다")일 수 있어 답변으로 쓰지 않는다
@@ -335,6 +394,9 @@ class AnswerService:
         elif route.name == "wireframe" and not attachment:
             confidence = "low"
             body = (body + "\n\n" if body else "") + WIREFRAME_MISSING
+        elif comparison and not (spec and is_comparison(spec)):
+            confidence = "low"
+            body = (body + "\n\n" if body else "") + COMPARISON_MISSING
         elif resp.error and not body:
             confidence = "low"
             body = "답변을 만들지 못했습니다. 잠시 후 다시 시도하거나 질문 범위를 좁혀 주세요."
@@ -344,6 +406,8 @@ class AnswerService:
             confidence = "medium"  # 문서 근거만 있거나 일부 인용이 검증 실패
         else:
             confidence = "low"
+        if attachment_kind == "flow" and confidence == "low":
+            attachment, attachment_kind = None, None  # 검증된 근거가 없는 흐름도는 올리지 않는다
         if session.widened:
             scope.reason += " · 범위 확장됨(범위 미스)"
         total_cost = resp.cost_usd + scope_cost
@@ -359,4 +423,5 @@ class AnswerService:
                       cost_usd=total_cost, duration_ms=resp.duration_ms, error=resp.error, unverified=unverified,
                       config_dependent=bool(cited_paths & session.config_dependent), tool_calls=len(resp.tool_calls),
                       domain_names=[d.name for d in (self.domain_map.get(i) for i in scope.domains) if d] if self.domain_map else [],
-                      attachment=attachment)
+                      attachment=attachment, attachment_kind=attachment_kind,
+                      comparison=comparison, vision_cost_usd=vision_cost)
