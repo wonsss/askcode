@@ -12,6 +12,7 @@
 - [x] 골든 세트 평가 결과표 확보: [eval-20261015-173540.md](../eval/results/eval-20261015-173540.md) (86%, 24/28)
 - [ ] law-watch 최신 커밋을 GitHub에 푸시했다면 `askcode sync` 다시 실행
 - [ ] `uv run askcode doctor --online`으로 크레딧·토큰·노션 접근 확인
+- [ ] 데모 당일 아침 `uv run askcode host on` (봇·콘솔 상시 실행, 잠자기 방지) → `askcode host status`, 전원 연결
 - [ ] 아래 질문을 데모 채널에서 한 번씩 미리 실행해 스레드를 남겨 둔다 (1회 약 $0.35)
 - [ ] 백업 영상 녹화
 

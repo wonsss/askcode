@@ -48,6 +48,7 @@ uv run askcode doctor --online       # 환경·키·크레딧·노션·DB·백�
 uv run askcode sync                  # 레포 클론 + 인덱싱 + 노션·슬랙 수집 (Claude 비용 없음)
 uv run askcode serve                 # 슬랙 봇
 uv run askcode console               # 웹 콘솔 http://127.0.0.1:8787 (로컬 전용, 읽기 전용, 비용 없음)
+uv run askcode host on|off|status    # 맥북 호스트 모드: 봇·콘솔 상시 실행, 잠자기 방지, 매일 백업
 
 uv run askcode ask "앱에서 의안 상세 화면은 네이티브야 웹뷰야?"
 uv run askcode ask "알림 로직 알려줘" --domains follows-push
@@ -63,6 +64,24 @@ uv run pytest
 ```
 
 `ask`·`eval`·`serve`만 Claude API 비용이 듭니다. 경로별 비용은 [docs/cost.md](docs/cost.md)에 있습니다.
+
+## 맥북 호스트 모드 (데모·소규모)
+
+맥북을 서버처럼 쓴다. VPS + Docker 대신 macOS `launchd`가 봇·콘솔을 띄우고 관리한다.
+
+| | `askcode host on` 이후 |
+| --- | --- |
+| 실행 | 봇(`serve`)·웹 콘솔(`console`)이 바로 뜨고, 로그인할 때마다 자동으로 켜진다 |
+| 장애 | 죽으면 1분 안에 다시 뜬다(키·크레딧 문제로 바로 죽으면 1분에 한 번만 재시도) |
+| 잠자기 | 봇이 도는 동안 시스템 잠자기를 막는다(화면은 꺼져도 됨). 전원 연결 권장, 덮개를 닫으면 멈출 수 있다 |
+| 백업 | 매일 03:30 `backup → restore-check → maintenance` |
+| 중복 | 봇은 하나만 뜬다(같은 질문에 답이 두 번 가지 않도록 잠금) |
+| 로그 | `data/logs/{bot,console,backup}.log` |
+
+- 끌 때는 `askcode host off`. 등록을 지우고 잠자기 방지도 풀린다. 상태는 `askcode host status`.
+- 인증은 `.env`의 Claude API 키다. 셸 환경을 물려받지 않아 셸에 남은 `ANTHROPIC_*` 값이 끼어들지 않는다.
+- 맥북이 꺼져 있으면 봇도 멈춘다. 팀이 매일 쓰는 24시간 운영은 VPS([docs/deploy-vultr.md](docs/deploy-vultr.md))가 맞다.
+- Claude Pro·Max 구독 로그인으로 봇을 돌리는 것은 Anthropic 정책상 허용되지 않는다(Agent SDK 제품은 API 키 인증).
 
 ## 문서
 

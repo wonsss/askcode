@@ -24,8 +24,9 @@ uv run askcode serve             # 슬랙 봇 (Socket Mode)
 uv run askcode stats
 uv run askcode console           # 웹 콘솔 127.0.0.1:8787 (읽기 전용, API 비용 없음)
 uv run askcode backup | restore-check | maintenance   # DB 운영 (docs/operations.md)
+uv run askcode host on|off|status   # 맥북 호스트 모드 (launchd, 잠자기 방지, 매일 백업)
 uv run askcode redact <query_id> --reason "…"        # 개인정보 유입 시 텍스트 가림
-uv run pytest                    # 115개
+uv run pytest                    # 118개
 ```
 
 ## 구조 요약
@@ -50,7 +51,7 @@ uv run pytest                    # 115개
 
 ## 현재 상태 (2026-10-15)
 
-- 테스트 115개 통과. 실제 Claude API·슬랙으로 실측 완료. 골든 세트 2차 평가 86%(24/28), 이후 노션 3문항(q26~q28) 통과. 단, 답변 문체를 바꾼 뒤 28문항 전체를 다시 돌리지는 않았다.
+- 테스트 118개 통과. 실제 Claude API·슬랙으로 실측 완료. 골든 세트 2차 평가 86%(24/28), 이후 노션 3문항(q26~q28) 통과. 단, 답변 문체를 바꾼 뒤 28문항 전체를 다시 돌리지는 않았다.
 - 비용은 SDK 보고값이 아니라 토큰 × 단가로 계산한다(`llm/pricing.py`). 경로별 실측과 월 비용 추정은 `docs/cost.md`.
 - **API 비용이 드는 작업(eval·ask)은 예상 금액을 먼저 사용자에게 말한다.** 전체 평가 1회 약 $0.85.
 - `.env` 입력 완료: Claude 키, 슬랙 봇·앱 토큰, GitHub App(ID·설치 ID·`secrets/github-app.pem`). GitHub App으로 law-watch 클론·인덱싱 확인됨(`data/`, main@31bcf1e). 확인 요청 채널(`ASKCODE_ESCALATION_CHANNEL`)도 설정됨.
@@ -61,5 +62,6 @@ uv run pytest                    # 115개
 - 답변 끝에 '💬 이어서 물어보기' 후속 질문 버튼 2~3개(에이전트가 "후속 질문:" 목록으로 같이 출력 → `extract_followups`로 떼어 버튼화). 답변당 출력 약 +50~100토큰.
 - 웹 콘솔 v1 구현(`askcode console`). 동기화 때 커밋별 파일 해시(`commit_files`)를 기록해 답의 최신성을 판단한다. P1(산출물 보관·도메인 FAQ·슬랙 기존 답 제안 등)은 미구현.
 - DB: 감사 로그 **영구 보존**(2026-10-16 결정). 스키마는 `PRAGMA user_version` + `store/db.py`의 `MIGRATIONS`(추가만). 백업·복구 확인·정리·가리기 명령 있음, 서버 밖 복사는 `ASKCODE_BACKUP_UPLOAD_CMD` 미설정.
+- 맥북 호스트 모드(`host.py`, launchd `com.askcode.{bot,console,backup}`)와 봇 중복 실행 잠금(`data/serve.lock`). 구독 로그인 사용은 Anthropic 정책상 불가 — API 키만 쓴다.
 - 남은 실패: q11(스코핑이 가끔 되묻기로 분류), q14(웹 기본 페이지 크기 6건 누락).
 - 에이전트 SDK 하위 프로세스는 부모 환경변수를 물려받는다. 그래서 Claude 키·주소는 셸 값을 무시하고 `.env`만 쓴다(`ANTHROPIC_API_KEY`·`ANTHROPIC_BASE_URL`, 하위 프로세스의 `ANTHROPIC_AUTH_TOKEN`은 비움). Claude 데스크톱 터미널에서 띄웠을 때 셸 키가 `.env`를 덮어써 401이 난 적이 있다. `serve`는 시작할 때 1토큰 호출로 키·크레딧을 확인하고, 문제가 있으면 원인을 출력하고 멈춘다.

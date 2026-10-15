@@ -24,7 +24,9 @@ AskCode의 데이터는 SQLite 파일 하나(`data/askcode.sqlite3`)에 있다. 
 
 정책을 바꿀 때(예: 1년 뒤 질문 문장 익명화)는 이 절과 `askcode maintenance`를 함께 고친다.
 
-## 매일 자동으로 하는 일 (Docker `backup` 서비스)
+## 매일 자동으로 하는 일 (Docker `backup` 서비스 또는 맥북 호스트 모드)
+
+맥북 호스트 모드(`askcode host on`)에서는 launchd가 매일 03:30에 같은 순서로 실행하고, 로그는 `data/logs/backup.log`에 남는다. 맥북이 그 시각에 꺼져 있으면 건너뛴다.
 
 ```
 askcode backup && askcode restore-check && askcode maintenance
