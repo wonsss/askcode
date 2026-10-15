@@ -135,7 +135,13 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
     async def _feedback(ack, body, client, value: str, note: str):
         await ack()
         store.log_feedback(body["actions"][0]["value"], body["user"]["id"], value)
-        await client.chat_postEphemeral(channel=body["channel"]["id"], user=body["user"]["id"], text=note)
+        await _notice(body, client, note)
+
+    async def _notice(body, client, note: str):
+        # 버튼이 있는 스레드 안에 보여 준다 (thread_ts가 없으면 DM 본 화면으로 가서 반응이 없는 것처럼 보인다)
+        msg = body.get("message") or {}
+        await client.chat_postEphemeral(channel=body["channel"]["id"], user=body["user"]["id"], text=note,
+                                        thread_ts=msg.get("thread_ts") or msg.get("ts"))
 
     @app.action("feedback_up")
     async def on_up(ack, body, client):
@@ -148,6 +154,11 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
     @app.action("escalate")
     async def on_escalate(ack, body, client):
         query_id = body["actions"][0]["value"]
+        already = store.execute("SELECT 1 FROM feedback WHERE query_id=? AND value='escalate' LIMIT 1", (query_id,)).fetchone()
+        if already:
+            await ack()
+            await _notice(body, client, "이 답변은 이미 개발 채널에 확인 요청을 올렸어요.")
+            return
         await _feedback(ack, body, client, "escalate", "개발 채널에 확인 요청을 올렸어요." if escalation_channel
                         else "확인 요청 채널이 설정되지 않았어요(ASKCODE_ESCALATION_CHANNEL).")
         if not escalation_channel:
