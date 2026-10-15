@@ -7,6 +7,7 @@
 - 데모 시나리오: [docs/demo-scenario.md](docs/demo-scenario.md)
 - 비용 모델과 실측: [docs/cost.md](docs/cost.md)
 - 와이어프레임 생성: [docs/wireframe.md](docs/wireframe.md)
+- 웹 콘솔 기획(미구현): [docs/web-console.md](docs/web-console.md)
 - 정책·흐름 답변의 로직 흐름도: [docs/flowchart.md](docs/flowchart.md)
 - 데모 대상: [wonsss/law-watch](https://github.com/wonsss/law-watch) (main)
 
