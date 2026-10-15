@@ -55,7 +55,7 @@ SPEC = {
             {"type": "chips", "items": ["최신", "인기"], "active": 0, "note": "정렬 칩"},
             {"type": "card_list", "card": {"tag": "관련 의안명", "title": "게시글 제목", "meta": "작성자"}, "count": 4},
             {"type": "fab", "label": "글쓰기", "note": "글쓰기 버튼"},
-            {"type": "bottom_tabs", "items": ["홈", "알림", "탐색"], "active": 2},
+            {"type": "bottom_tabs", "items": ["홈", "알림", "탐색"], "active": "탐색"},
             {"type": "unknown_widget", "label": "무시됨"},
         ]},
         {"name": "2. 글쓰기", "elements": [

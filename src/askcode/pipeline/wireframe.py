@@ -215,8 +215,10 @@ table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #ddd;pad
 .tabbar .on{color:#111;font-weight:700}
 .web .fab,.web .inputbar,.web .tabbar{position:static;margin:12px 20px}
 .num{display:inline-block;min-width:18px;height:18px;line-height:18px;padding:0 4px;text-align:center;border-radius:9px;background:#111;color:#fff;font-size:11px;font-weight:700}
+.nav,.tabs{position:relative}
 .mark{position:absolute;right:-14px;top:-6px;z-index:2}
-.nav .mark,.tabs .mark,.section .mark{right:6px}
+.tabs .num,.tabbar .num{flex:none;padding:0 4px;color:#fff;border:0}
+.nav .mark,.tabs .mark,.section .mark,.inputbar .mark,.tabbar .mark{right:6px;top:-9px}
 .legend{margin-top:12px;font-size:12px;color:#555;line-height:1.7}.legend .num{margin-right:6px}
 """
 
@@ -271,6 +273,14 @@ def _int(v: object, default: int, lo: int, hi: int) -> int:
         return default
 
 
+def _active(e: dict) -> int:
+    """active는 번호(0부터) 또는 항목 이름 둘 다 받는다."""
+    items, v = _items(e.get("items")), e.get("active")
+    if isinstance(v, str) and v in items:
+        return items.index(v)
+    return _int(v, 0, 0, 99)
+
+
 def _num(n: int) -> str:
     return CIRCLED[n - 1] if n <= len(CIRCLED) else str(n)
 
@@ -292,7 +302,7 @@ class _Renderer:
 
     def element(self, e: dict, depth: int) -> str:
         k, m = e["type"], self.mark(e)
-        active = _int(e.get("active"), 0, 0, 99)
+        active = _active(e)
         if k == "header":
             if e.get("large"):
                 return f'<div class="el large">{_t(e.get("title"))}<span>{_t(e.get("right"))}</span>{m}</div>'

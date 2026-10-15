@@ -93,7 +93,7 @@ WIREFRAME_TEMPLATE = """\
 이 요청은 질문 답변이 아니라 저충실도 와이어프레임 생성입니다. 시스템 프롬프트의 답변 형식(600자, 식별자 금지) 대신 아래를 따릅니다.
 
 ## 작업 순서
-1. 도구로 비슷한 기존 화면을 2~3곳 확인해 화면 관례를 파악합니다: 하단 탭 구성, 헤더, 목록 카드, 주요 버튼 위치, 네이티브/웹뷰 여부. 도구 호출은 6회 이내로 하고, 파일은 필요한 구간만 읽습니다.
+1. 도구로 비슷한 기존 화면을 2~3곳 확인해 화면 관례를 파악합니다: 하단 탭 구성, 헤더, 목록 카드, 주요 버튼 위치, 네이티브/웹뷰 여부. 서로 무관한 도구는 한 번에 같이 호출해 2~3차례 안에 끝내고(합계 6회 이내), 파일은 필요한 구간만 읽습니다.
 2. 기존 관례를 따르는 새 화면을 설계합니다. 정해지지 않은 기획 결정은 임의로 확정하지 말고 "가정"으로 적습니다.
 
 ## 출력 (이 순서 그대로, 짧게)
@@ -109,7 +109,7 @@ WIREFRAME_TEMPLATE = """\
 - 앱이면 화면 2~4개(390×844 프레임), 웹이면 1280px 화면 1~2개.
 - 요소는 위에서 아래 순서로, 화면당 4~10개. 주요 요소에 "note"(한 줄 설명)를 달면 그림에 ①②③ 번호와 프레임 아래 설명이 붙습니다. 화면당 note 3~5개.
 - 요소 type과 필드:
-  header{{title,left,right,large}} · search{{placeholder}} · tabs{{items,active}} · chips{{items,active}}
+  header{{title,left,right,large}} · search{{placeholder}} · tabs{{items,active(번호)}} · chips{{items,active}}
   card_list{{card:{{tag,title,desc,meta,thumb}},count}} · list{{items:[문자열 또는 {{title,meta,indent}}]}} · section{{title}}
   text{{text,size:title|body|meta}} · form_field{{label,placeholder,tall,select}} · button{{label,primary,full}}
   box{{label,height}}(이미지·차트 자리) · notice{{text}} · table{{columns,rows}}(웹) · columns{{cols:[[요소..],[요소..]],widths}}(웹 좌우 배치)
