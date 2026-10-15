@@ -245,7 +245,7 @@ class AnswerService:
             if route.name == "refuse":
                 body, options = REFUSE_TEXT, []
             else:
-                ids = scope.options or scope.domains
+                ids = self.domain_map.clarify_options(scope, question) if self.domain_map else []
                 options = [(d.id, d.name) for d in (self.domain_map.get(i) for i in ids) if d] if self.domain_map else []
                 body = scope.clarify_question or "질문 범위가 넓어요. 어느 부분이 궁금한지 골라 주세요."
             self.store.log_result(query_id, QueryResult(status=route.name, answer=body, confidence=None, model=self.models.get("small"),

@@ -118,3 +118,18 @@ async def test_fatal_api_error_skips_agent(store, tools, repo_cfg, repo_dir):
     assert "credit balance" in a.error and answer_blocks(a)[0]["text"]["text"].startswith("⚠️")
     forced = await svc.answer("알림 로직", forced_domains=["bills"])
     assert forced.status == "error" and not runner.calls
+
+
+def test_small_tier_disables_thinking():
+    from askcode.llm.complete import _thinking
+
+    assert _thinking("small") == {"thinking": {"type": "disabled"}}
+    assert _thinking("large") == {}
+
+
+def test_clarify_options_backfilled_from_terms():
+    m = load_domain_map(Path(__file__).parent.parent / "config")
+    ids = m.clarify_options(Scope(kind="broad", domains=["follows-push"], options=["follows-push"]), "알림 로직 알려줘")
+    assert ids[0] == "follows-push" and len(ids) >= 2 and "admin-ops" in ids
+    many = Scope(kind="broad", options=["bills", "people", "nope"])
+    assert m.clarify_options(many, "알림") == ["bills", "people"]

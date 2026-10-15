@@ -59,6 +59,18 @@ class DomainMap:
             globs.extend(d.paths)
         return tuple(dict.fromkeys(globs))
 
+    def term_matches(self, question: str) -> list[str]:
+        """질문에 도메인 용어의 단어(2자 이상)가 들어 있는 도메인. 되묻기 후보가 모자랄 때 보충용."""
+        return [d.id for d in self.domains
+                if any(w in question for t in d.terms for w in t.split() if len(w) >= 2)]
+
+    def clarify_options(self, scope: "Scope", question: str) -> list[str]:
+        """되묻기 후보. 모델이 1개만 주면 버튼 하나짜리 되묻기가 되므로 용어 매칭으로 2개 이상을 맞춘다."""
+        ids = [i for i in dict.fromkeys([*scope.options, *scope.domains]) if self.get(i)]
+        if len(ids) < 2:
+            ids = list(dict.fromkeys([*ids, *self.term_matches(question)]))
+        return ids[:5]
+
     def glossary_hits(self, question: str) -> dict[str, list[str]]:
         return {k: v for k, v in self.glossary.items() if k in question}
 
@@ -164,7 +176,7 @@ class Scoper:
         hits = self.map.glossary_hits(question)
         prompt = f"질문: {question}" + (f"\n용어 힌트: {json.dumps(hits, ensure_ascii=False)}" if hits else "")
         try:
-            comp = await self.llm.complete(prompt, tier="small", cache_prefix=self._system, max_tokens=400)
+            comp = await self.llm.complete(prompt, tier="small", cache_prefix=self._system, max_tokens=800)
             scope = parse_scope(comp.text, {d.id for d in self.map.domains})
             return scope, comp
         except Exception as exc:

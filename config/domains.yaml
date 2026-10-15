@@ -54,11 +54,12 @@ domains:
     paths: ["apps/api/src/favorites/**", "apps/api/src/subscriptions/**", "apps/api/src/devices/**", "apps/api/src/changes/**",
             "apps/api/src/watches/**", "apps/worker/src/notifications/**", "apps/worker/src/changes/**", "apps/web/components/follows/**",
             "apps/mobile/app/following/**", "apps/mobile/app/updates/**", "apps/mobile/app/notifications/**", "apps/mobile/app/favorites/**",
-            "apps/mobile/src/auth/**", "apps/mobile/src/features/follows/**", "docs/**/*push*", "docs/**/*my-news*"]
+            "apps/mobile/src/auth/**", "apps/mobile/src/features/follows/**", "apps/web/app/(public)/notifications/**",
+            "apps/web/hooks/use-notifications.ts", "docs/**/*push*", "docs/**/*my-news*"]
   - id: mobile-hybrid
     name: 모바일 앱 구조(네이티브·웹뷰)
     summary: 앱 탭·화면 구성, 네이티브/웹뷰 구분, 웹뷰 브리지, 딥링크, 로딩·캐시
-    terms: [앱, 웹뷰, 네이티브, 탭, 화면, 딥링크, 임베드]
+    terms: [앱, 웹뷰, 네이티브, 탭, 화면, 딥링크, 임베드, 알림 탭]
     paths: ["apps/mobile/**", "apps/web/app/embed/**", "apps/web/lib/webview-bridge.ts", "apps/web/lib/**", "docs/**/*mobile*",
             "docs/**/*webview*", "docs/guides/**"]
   - id: auth-account
@@ -80,7 +81,7 @@ domains:
   - id: admin-ops
     name: 관리자·운영
     summary: 관리자 화면, 신고 처리, 수집 현황, 배포·운영
-    terms: [관리자, 신고, 운영, 배포, 모니터링]
+    terms: [관리자, 신고, 운영, 배포, 모니터링, 배포 알림]
     paths: ["apps/api/src/admin/**", "apps/api/src/reports/**", "apps/web/app/admin/**", "apps/web/components/admin/**", "apps/studio/**", "ops/**"]
   - id: architecture-decisions
     name: 설계 결정·배경
