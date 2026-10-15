@@ -29,6 +29,42 @@ CREATE TABLE IF NOT EXISTS files (
   PRIMARY KEY (repo, path)
 );
 
+CREATE TABLE IF NOT EXISTS structure (
+  repo TEXT NOT NULL,
+  kind TEXT NOT NULL,            -- api | route | manifest | bridge
+  key TEXT NOT NULL,
+  label TEXT,
+  path TEXT NOT NULL,
+  line INTEGER NOT NULL,
+  extra TEXT
+);
+CREATE INDEX IF NOT EXISTS structure_kind ON structure(repo, kind);
+
+-- 문서 청크 (레포 docs, 노션, 슬랙). path는 레포 경로 또는 notion/…, slack/… 가상 경로
+CREATE TABLE IF NOT EXISTS docs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source TEXT NOT NULL,          -- repo | notion | slack
+  path TEXT NOT NULL,
+  title TEXT NOT NULL,
+  heading TEXT,
+  url TEXT,
+  updated_at TEXT,
+  start_line INTEGER NOT NULL,
+  end_line INTEGER NOT NULL,
+  text TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS docs_path ON docs(path);
+CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(title, heading, text, content='docs', content_rowid='id', tokenize='trigram');
+CREATE TABLE IF NOT EXISTS doc_files (
+  path TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  title TEXT NOT NULL,
+  url TEXT,
+  updated_at TEXT,
+  lines INTEGER NOT NULL,
+  body TEXT NOT NULL
+);
+
 -- 감사 로그 (append-only)
 CREATE TABLE IF NOT EXISTS queries (
   id TEXT PRIMARY KEY,
@@ -55,7 +91,9 @@ CREATE TABLE IF NOT EXISTS query_results (
   cost_usd REAL,
   duration_ms INTEGER,
   num_turns INTEGER,
-  error TEXT
+  error TEXT,
+  scope TEXT,                    -- 스코핑 결과 JSON
+  route TEXT                     -- simple | agent | clarify | refuse
 );
 
 CREATE TABLE IF NOT EXISTS tool_calls (
@@ -116,6 +154,8 @@ class QueryResult:
     duration_ms: int = 0
     num_turns: int = 0
     error: str | None = None
+    scope: str | None = None
+    route: str | None = None
 
 
 class Store:
@@ -173,6 +213,56 @@ class Store:
     def file_count(self, repo: str) -> int:
         return self.execute("SELECT COUNT(*) AS n FROM files WHERE repo=?", (repo,)).fetchone()["n"]
 
+    # 구조 맵
+    def replace_structure(self, repo: str, rows: list[tuple]) -> None:
+        with self._lock:
+            self._conn.execute("BEGIN")
+            try:
+                self._conn.execute("DELETE FROM structure WHERE repo=?", (repo,))
+                self._conn.executemany(
+                    "INSERT INTO structure(repo, kind, key, label, path, line, extra) VALUES (?,?,?,?,?,?,?)",
+                    [(repo, *r) for r in rows],
+                )
+                self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+
+    # 문서
+    def replace_docs(self, source: str, files: list[dict], chunks: list[dict]) -> None:
+        """source 단위로 문서를 통째로 교체한다. files: path,title,url,updated_at,lines,body / chunks: path,title,heading,url,updated_at,start_line,end_line,text"""
+        with self._lock:
+            self._conn.execute("BEGIN")
+            try:
+                ids = [r[0] for r in self._conn.execute("SELECT id FROM docs WHERE source=?", (source,))]
+                for i in ids:
+                    row = self._conn.execute("SELECT title, heading, text FROM docs WHERE id=?", (i,)).fetchone()
+                    self._conn.execute("INSERT INTO docs_fts(docs_fts, rowid, title, heading, text) VALUES('delete',?,?,?,?)",
+                                       (i, row[0], row[1], row[2]))
+                self._conn.execute("DELETE FROM docs WHERE source=?", (source,))
+                self._conn.execute("DELETE FROM doc_files WHERE source=?", (source,))
+                for f in files:
+                    self._conn.execute(
+                        "INSERT OR REPLACE INTO doc_files(path, source, title, url, updated_at, lines, body) VALUES (?,?,?,?,?,?,?)",
+                        (f["path"], source, f["title"], f.get("url"), f.get("updated_at"), f["lines"], f["body"]),
+                    )
+                for c in chunks:
+                    cur = self._conn.execute(
+                        "INSERT INTO docs(source, path, title, heading, url, updated_at, start_line, end_line, text) "
+                        "VALUES (?,?,?,?,?,?,?,?,?)",
+                        (source, c["path"], c["title"], c.get("heading"), c.get("url"), c.get("updated_at"),
+                         c["start_line"], c["end_line"], c["text"]),
+                    )
+                    self._conn.execute("INSERT INTO docs_fts(rowid, title, heading, text) VALUES (?,?,?,?)",
+                                       (cur.lastrowid, c["title"], c.get("heading") or "", c["text"]))
+                self._conn.execute("COMMIT")
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
+
+    def doc_file(self, path: str) -> sqlite3.Row | None:
+        return self.execute("SELECT * FROM doc_files WHERE path=?", (path,)).fetchone()
+
     # 감사 로그 (append-only)
     def log_query(
         self,
@@ -193,11 +283,11 @@ class Store:
 
     def log_result(self, query_id: str, r: QueryResult) -> None:
         self.execute(
-            "INSERT INTO query_results VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO query_results VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 query_id, time.time(), r.status, r.answer, r.confidence, r.model,
                 r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_write_tokens,
-                r.cost_usd, r.duration_ms, r.num_turns, r.error,
+                r.cost_usd, r.duration_ms, r.num_turns, r.error, r.scope, r.route,
             ),
         )
 
