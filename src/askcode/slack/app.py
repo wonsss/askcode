@@ -114,8 +114,8 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
             loc = f"{r['path']}:{r['start_line']}" + (f"-{r['end_line']}" if r["end_line"] != r["start_line"] else "")
             doc = store.doc_file(r["path"]) if r["source"] in ("notion", "slack") else None
             url = doc["url"] if doc else f"{base}/blob/{commit['commit_sha'] if commit else 'main'}/{r['path']}#L{r['start_line']}"
-            mark = "✅" if r["verified"] else f"⚠️ {r['reason']}"
-            lines.append(f"{mark} <{url}|`{loc}`>")
+            mark = "✅" if r["verified"] else f"⚠️ 제외({r['reason']})"
+            lines.append(f"{mark} <{url}|{loc}>")
         tools = store.execute("SELECT tool, input_json FROM tool_calls WHERE query_id=? ORDER BY id", (query_id,)).fetchall()
         trail = "\n".join(f"{i + 1}. `{t['tool']}` {t['input_json'][:120]}" for i, t in enumerate(tools))
         res = store.execute("SELECT route, cost_usd, duration_ms, num_turns FROM query_results WHERE query_id=?",

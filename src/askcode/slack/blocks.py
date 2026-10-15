@@ -7,24 +7,40 @@ import re
 from askcode.pipeline.answer import Answer, Citation
 
 CONFIDENCE_LABEL = {"high": "🟢 확신도 높음", "medium": "🟡 확신도 보통", "low": "🔴 확신도 낮음 · 확인 필요"}
-SOURCE_ICON = {"code": "💻", "doc": "📄", "notion": "📝", "slack": "💬"}
+SOURCE_LABEL = {"code": "코드", "doc": "문서", "notion": "노션", "slack": "슬랙"}
 MAX_SECTION = 2900
-TOP_CITATIONS = 6
+TOP_CITATIONS = 3
+
+
+DEV_NOTE_PREFIX = "🔧"
+
+
+def plain_body(text: str) -> str:
+    """기획자용 본문에서 코드 서식을 걷어낸다. '🔧 개발자 참고' 줄만 코드 서식을 남긴다."""
+    return "\n".join(line if line.lstrip().startswith(DEV_NOTE_PREFIX) else line.replace("`", "")
+                     for line in text.splitlines())
 
 
 def to_mrkdwn(text: str) -> str:
     """마크다운 일부를 슬랙 mrkdwn으로 바꾼다."""
+    text = re.sub(r"^(\s*)[-*]\s+", r"\1• ", text, flags=re.MULTILINE)
     text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
     text = re.sub(r"^#{1,6}\s*(.+)$", r"*\1*", text, flags=re.MULTILINE)
     text = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"<\2|\1>", text)
     return text
 
 
+def short_path(path: str) -> str:
+    """긴 경로를 '상위폴더/파일명'으로 줄인다. 전체 경로는 링크와 '근거 전체 보기'에 있다."""
+    parts = path.split("/")
+    return "/".join(parts[-2:])
+
+
 def citation_line(c: Citation) -> str:
-    loc = f"{c.path}:{c.start}" + (f"-{c.end}" if c.end != c.start else "")
-    note = f" — {c.note}" if c.note else ""
-    link = f"<{c.url}|`{loc}`>" if c.url else f"`{loc}`"
-    return f"{SOURCE_ICON.get(c.source, '•')} {link}{note}"
+    loc = f"{short_path(c.path)}:{c.start}" + (f"-{c.end}" if c.end != c.start else "")
+    link = f"<{c.url}|{loc}>" if c.url else loc
+    note = c.note.replace("`", "").strip(" —-")
+    return f"• {SOURCE_LABEL.get(c.source, '')} {link}" + (f"  {note}" if note else "")
 
 
 def thinking_blocks(text: str = "⏳ 코드를 확인하고 있어요…") -> list[dict]:
@@ -58,21 +74,23 @@ def answer_blocks(a: Answer) -> list[dict]:
         return refuse_blocks(a)
     if a.status == "error":
         return [{"type": "section", "text": {"type": "mrkdwn", "text": f"⚠️ {a.body}"}}]
-    scope = f"  ·  범위 `{', '.join(a.scope.domains)}`" if a.scope and a.scope.domains else ""
-    meta = f"{CONFIDENCE_LABEL.get(a.confidence, a.confidence)}  ·  기준 `main@{a.commit[:7]}`{scope}"
+    meta = [CONFIDENCE_LABEL.get(a.confidence, a.confidence)]
+    if a.domain_names:
+        meta.append(" · ".join(a.domain_names))
+    meta.append(f"코드 기준 main@{a.commit[:7]}")
     blocks: list[dict] = [
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": meta}]},
-        {"type": "section", "text": {"type": "mrkdwn", "text": to_mrkdwn(a.body)[:MAX_SECTION] or "(빈 답변)"}},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": "   |   ".join(meta)}]},
+        {"type": "section", "text": {"type": "mrkdwn", "text": to_mrkdwn(plain_body(a.body))[:MAX_SECTION] or "(빈 답변)"}},
     ]
     if a.citations:
         lines = "\n".join(citation_line(c) for c in a.citations[:TOP_CITATIONS])
-        more = f"\n외 {len(a.citations) - TOP_CITATIONS}건" if len(a.citations) > TOP_CITATIONS else ""
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"*근거*\n{lines}{more}"[:MAX_SECTION]}})
+        more = f"\n외 {len(a.citations) - TOP_CITATIONS}건은 '근거 전체 보기'에서 볼 수 있어요." if len(a.citations) > TOP_CITATIONS else ""
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"*📎 근거*\n{lines}{more}"[:MAX_SECTION]}]})
     else:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "검증된 근거가 없어요. 개발자 확인을 권장합니다."}]})
     notes = []
     if a.config_dependent:
-        notes.append("⚙ 일부 값은 환경변수·운영 설정에 따라 달라질 수 있어요.")
+        notes.append("⚙️ 일부 값은 운영 설정에 따라 달라질 수 있어요.")
     if a.unverified:
         notes.append(f"검증하지 못한 인용 {len(a.unverified)}건은 제외했어요.")
     if a.scope and "범위 미스" in a.scope.reason:

@@ -81,6 +81,14 @@ async def test_slack_blocks(store, tools, repo_cfg, repo_dir):
     assert {e["action_id"] for e in blocks[-1]["elements"]} == {"show_evidence", "feedback_up", "feedback_down", "escalate"}
     assert "github.com/example/demo/blob/abc1234def" in str(blocks)
     assert to_mrkdwn("**굵게** [링크](https://x.y)") == "*굵게* <https://x.y|링크>"
+    assert to_mrkdwn("- 첫째\n  - 둘째") == "• 첫째\n  • 둘째"
+
+
+def test_plain_body_keeps_code_only_in_dev_note():
+    from askcode.slack.blocks import plain_body
+
+    out = plain_body("- 웹 `/embed/bills` 화면\n🔧 개발자 참고: `POST /api/v1/follows`")
+    assert out == "- 웹 /embed/bills 화면\n🔧 개발자 참고: `POST /api/v1/follows`"
 
 
 def test_clean_question_strips_mention_and_copied_backticks():
@@ -89,3 +97,14 @@ def test_clean_question_strips_mention_and_copied_backticks():
     assert clean_question("<@U123ABC> `의안 상세 화면은 네이티브야 웹뷰야?`") == "의안 상세 화면은 네이티브야 웹뷰야?"
     assert clean_question("“알림 로직 알려줘”") == "알림 로직 알려줘"
     assert clean_question("`code_search`가 뭐야?") == "`code_search`가 뭐야?"
+
+
+def test_citation_line_is_short_and_plain():
+    from askcode.pipeline.answer import Citation
+    from askcode.slack.blocks import citation_line, short_path
+
+    c = Citation("code", "apps/mobile/src/navigation/public-route-manifest.ts", 193, 200, "`bill-detail` 화면 등록", True, "ok",
+                 "https://github.com/x/y/blob/c/apps/mobile/src/navigation/public-route-manifest.ts#L193")
+    line = citation_line(c)
+    assert short_path(c.path) == "navigation/public-route-manifest.ts"
+    assert "|navigation/public-route-manifest.ts:193-200>" in line and "`" not in line and "bill-detail 화면 등록" in line

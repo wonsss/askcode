@@ -62,6 +62,7 @@ class Answer:
     unverified: list[Citation] = field(default_factory=list)
     config_dependent: bool = False
     tool_calls: int = 0
+    domain_names: list[str] = field(default_factory=list)  # 슬랙 표시용 도메인 이름
 
 
 def _split_evidence(text: str) -> tuple[str, str]:
@@ -308,4 +309,5 @@ class AnswerService:
         cited_paths = {c.path for c in verified}
         return Answer(query_id, body, verified, confidence, commit, status="answer", route=route.name, scope=scope,
                       cost_usd=total_cost, duration_ms=resp.duration_ms, error=resp.error, unverified=unverified,
-                      config_dependent=bool(cited_paths & session.config_dependent), tool_calls=len(resp.tool_calls))
+                      config_dependent=bool(cited_paths & session.config_dependent), tool_calls=len(resp.tool_calls),
+                      domain_names=[d.name for d in (self.domain_map.get(i) for i in scope.domains) if d] if self.domain_map else [])
