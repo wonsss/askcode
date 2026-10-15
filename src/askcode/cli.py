@@ -5,6 +5,7 @@
   askcode eval [--ids q01,q02] [--limit N]  골든 세트 평가 → eval/results/
   askcode serve                            슬랙 봇 실행 (주기적 동기화 포함)
   askcode stats                            감사 로그 요약
+  askcode console [--port 8787]            웹 콘솔 (로컬 전용, 읽기 전용, API 비용 없음)
   askcode doctor [--online]                환경 점검 (도구·설정·인덱스, --online이면 연결까지)
 """
 
@@ -163,6 +164,24 @@ def cmd_stats() -> None:
     print("피드백 " + (", ".join(f"{r['value']} {r['n']}" for r in fb) or "없음"))
 
 
+def cmd_console(port: int) -> None:
+    """웹 콘솔. Claude API를 쓰지 않으므로 API 키 없이도 뜬다. 로컬(127.0.0.1)에서만 연다."""
+    import uvicorn
+
+    from askcode.config import load_repos
+    from askcode.console.data import ConsoleData
+    from askcode.console.server import create_app
+    from askcode.pipeline.scoping import load_domain_map
+    from askcode.settings import Settings
+
+    s = Settings()
+    repo = load_repos(s.config_dir)[0]
+    names = {d.id: d.name for d in load_domain_map(s.config_dir).domains}
+    data = ConsoleData(s.db_path, repo.name, repo.web_base, Path("eval/results"), names)
+    print(f"AskCode 콘솔: http://127.0.0.1:{port}  (로컬 전용, 읽기 전용, 종료는 Ctrl+C)")
+    uvicorn.run(create_app(data), host="127.0.0.1", port=port, log_level="warning")
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(prog="askcode")
@@ -180,6 +199,8 @@ def main() -> None:
     ev.add_argument("--concurrency", type=int, default=2)
     sub.add_parser("serve")
     sub.add_parser("stats")
+    con = sub.add_parser("console", help="웹 콘솔 (로컬 전용, 읽기 전용)")
+    con.add_argument("--port", type=int, default=8787)
     dr = sub.add_parser("doctor")
     dr.add_argument("--online", action="store_true", help="슬랙·Claude·GitHub·노션 연결까지 확인")
     args = parser.parse_args()
@@ -195,6 +216,8 @@ def main() -> None:
         cmd_eval(args.ids, args.limit, args.concurrency)
     elif args.cmd == "serve":
         cmd_serve()
+    elif args.cmd == "console":
+        cmd_console(args.port)
     elif args.cmd == "stats":
         cmd_stats()
 

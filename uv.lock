@@ -225,6 +225,8 @@ dependencies = [
     { name = "pyjwt" },
     { name = "pyyaml" },
     { name = "slack-bolt" },
+    { name = "starlette" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -244,6 +246,8 @@ requires-dist = [
     { name = "pyjwt", specifier = ">=2.15.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "slack-bolt", specifier = ">=1.30.0" },
+    { name = "starlette", specifier = ">=1.8.0" },
+    { name = "uvicorn", specifier = ">=0.54.0" },
 ]
 
 [package.metadata.requires-dev]
