@@ -8,6 +8,7 @@ from askcode.pipeline.answer import Answer, Citation
 
 CONFIDENCE_LABEL = {"high": "🟢 확신도 높음", "medium": "🟡 확신도 보통", "low": "🔴 확신도 낮음 · 확인 필요"}
 SOURCE_LABEL = {"code": "코드", "doc": "문서", "notion": "노션", "slack": "슬랙"}
+PROVIDER_LABEL = {"api": "API 키", "subscription": "구독"}
 MAX_SECTION = 2900
 TOP_CITATIONS = 3
 
@@ -104,6 +105,8 @@ def answer_blocks(a: Answer, note: str | None = None) -> list[dict]:
     if a.domain_names:
         meta.append(" · ".join(a.domain_names))
     meta.append(f"코드 기준 main@{a.commit[:7]}")
+    if a.provider:
+        meta.append(PROVIDER_LABEL.get(a.provider, a.provider))
     blocks: list[dict] = [
         {"type": "context", "elements": [{"type": "mrkdwn", "text": "   |   ".join(meta)}]},
     ]
@@ -228,8 +231,12 @@ def evidence_blocks(citations: list[dict], steps: list[tuple[str, dict]], result
         read, write, fresh = result.get("cache_read_tokens") or 0, result.get("cache_write_tokens") or 0, result.get("input_tokens") or 0
         total_in = read + write + fresh
         hit = f" · 캐시 재사용 {100 * read / total_in:.0f}%" if total_in else ""
+        prov = result.get("provider")
+        # 구독 모드는 실제 과금이 없고 토큰×리스트 단가 환산값이다
+        cost_word = "비용 환산" if prov == "subscription" else "비용"
         stat = (f"{ROUTE_LABEL.get(result.get('route'), result.get('route') or '-')} · {(result.get('duration_ms') or 0) / 1000:.1f}초"
-                f" · 비용 약 ${result.get('cost_usd') or 0:.4f}\n"
+                + (f" · {PROVIDER_LABEL.get(prov, prov)}" if prov else "")
+                + f" · {cost_word} 약 ${result.get('cost_usd') or 0:.4f}\n"
                 f"토큰: 입력 {_k(total_in)}{hit} · 출력 {_k(result.get('output_tokens'))} · 모델 호출 {result.get('num_turns') or 0}회")
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": stat}]})
     return blocks

@@ -11,7 +11,7 @@ from askcode.indexing.code_index import build_code_index
 from askcode.indexing.docs_index import index_repo_docs, store_virtual_docs
 from askcode.indexing.repo_sync import RepoSync
 from askcode.indexing.structure import build_structure
-from askcode.llm.complete import LLM
+from askcode.llm.complete import Completer, LLM
 from askcode.pipeline.answer import AnswerService
 from askcode.pipeline.scoping import DomainMap, Scoper, load_domain_map
 from askcode.settings import Settings
@@ -39,7 +39,7 @@ class Container:
     repo: RepoConfig
     sync: RepoSync
     service: AnswerService
-    llm: LLM
+    llm: Completer
     domain_map: DomainMap
 
     def refresh(self, *, external: bool = True, force: bool = False) -> RefreshReport:
@@ -90,10 +90,18 @@ def build_container(settings: Settings | None = None) -> Container:
     repo = load_repos(settings.config_dir)[0]  # PoC는 레포 하나
     sync = RepoSync(settings)
     repo_path = sync.path_for(repo)
-    api_key = settings.anthropic_api_key.get_secret_value() if settings.anthropic_api_key else None
-    llm = LLM(settings)
+    subscription = settings.llm_provider == "subscription"
+    api_key = None if subscription else (
+        settings.anthropic_api_key.get_secret_value() if settings.anthropic_api_key else None)
+    if subscription:
+        from askcode.llm.claude_cli import CliLLM  # 구독 로그인: claude CLI 하위 프로세스(로컬 PoC 전용)
+        llm: Completer = CliLLM(settings)
+    else:
+        llm = LLM(settings)
     domain_map = load_domain_map(settings.config_dir)
-    runner = ClaudeAgentRunner(model=settings.model_large, api_key=api_key, base_url=settings.anthropic_base_url)
+    runner = ClaudeAgentRunner(model=settings.model_large, api_key=api_key,
+                               base_url=None if subscription else settings.anthropic_base_url,
+                               subscription=subscription)
     code_tools = CodeTools(store, repo, repo_path, settings.search_max_results, settings.read_max_lines)
     service = AnswerService(
         store, repo, repo_path, runner, code_tools, settings.agent_max_turns, settings.agent_max_budget_usd,
@@ -101,5 +109,6 @@ def build_container(settings: Settings | None = None) -> Container:
         structure_tools=StructureTools(store, repo.name, repo_path),
         models={"small": settings.model_small, "large": settings.model_large},
         efforts={"small": settings.agent_effort_small or None, "large": settings.agent_effort_large or None},
+        provider=settings.llm_provider,
     )
     return Container(settings, store, repo, sync, service, llm, domain_map)

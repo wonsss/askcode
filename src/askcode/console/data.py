@@ -28,6 +28,7 @@ CHECK_REASONS = {
 }
 ROUTE_KO = {"simple": "빠른 답", "agent": "심층 탐색", "wireframe": "와이어프레임", "clarify": "되묻기",
             "refuse": "거절", "unavailable": "API 사용 불가"}
+PROVIDER_KO = {"api": "API 키", "subscription": "구독"}
 
 
 def search_terms(query: str) -> list[str]:
@@ -65,6 +66,7 @@ class Row:
     commit: str | None
     status: str | None
     route: str | None
+    provider: str | None  # api | subscription — 답변 시점에 실제 쓰인 인증 경로
     confidence: str | None
     cost: float
     duration_ms: int
@@ -129,7 +131,7 @@ class ConsoleData:
         if since:
             where.append("q.ts>=?")
             params.append(since)
-        sql = ("SELECT q.*, r.status, r.route, r.confidence, r.cost_usd, r.duration_ms, r.error, r.answer, r.scope "
+        sql = ("SELECT q.*, r.status, r.route, r.provider, r.confidence, r.cost_usd, r.duration_ms, r.error, r.answer, r.scope "
                "FROM queries q LEFT JOIN query_results r ON r.query_id=q.id"
                + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY q.ts DESC")
         fb: dict[str, list[str]] = {}
@@ -143,8 +145,9 @@ class ConsoleData:
             except ValueError:
                 scope = {}
             out.append(Row(r["id"], r["ts"], r["source"], r["user_id"], r["channel"], r["question"], r["commit_sha"],
-                           r["status"], r["route"], r["confidence"], r["cost_usd"] or 0.0, r["duration_ms"] or 0,
-                           r["error"], r["answer"], scope, fb.get(r["id"], []), r["id"] in widened))
+                           r["status"], r["route"], r["provider"], r["confidence"], r["cost_usd"] or 0.0,
+                           r["duration_ms"] or 0, r["error"], r["answer"], scope, fb.get(r["id"], []),
+                           r["id"] in widened))
         return out
 
     def search(self, query: str = "", *, source: str | None = "slack", domain: str = "", route: str = "",
@@ -209,7 +212,7 @@ class ConsoleData:
         return steps
 
     def usage(self, query_id: str) -> dict:
-        r = self.q("SELECT model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, num_turns "
+        r = self.q("SELECT model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, num_turns, provider "
                    "FROM query_results WHERE query_id=?", (query_id,))
         return dict(r[0]) if r else {}
 

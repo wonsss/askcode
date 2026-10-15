@@ -149,6 +149,9 @@ CREATE TABLE IF NOT EXISTS redactions (
   reason TEXT NOT NULL
 );
 """),
+    (3, """
+ALTER TABLE query_results ADD COLUMN provider TEXT;    -- api | subscription, 이전 행은 NULL
+"""),
 ]
 SCHEMA_VERSION = max([1, *(v for v, _ in MIGRATIONS)])
 REDACTED = "[삭제됨]"
@@ -182,6 +185,7 @@ class QueryResult:
     error: str | None = None
     scope: str | None = None
     route: str | None = None
+    provider: str | None = None  # api | subscription — 실제로 답을 만든 인증 경로
 
 
 class Store:
@@ -202,7 +206,12 @@ class Store:
             self._conn.execute("BEGIN IMMEDIATE")
             try:
                 for stmt in [x for x in sql.split(";") if x.strip()]:
-                    self._conn.execute(stmt)
+                    try:
+                        self._conn.execute(stmt)
+                    except sqlite3.OperationalError as e:
+                        # 추가 전용 마이그레이션: 컬럼이 이미 있으면 적용된 것으로 본다
+                        if "duplicate column name" not in str(e):
+                            raise
                 self._conn.execute(f"PRAGMA user_version = {version}")
                 self._conn.execute("COMMIT")
             except Exception:
@@ -369,11 +378,13 @@ BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END""")
 
     def log_result(self, query_id: str, r: QueryResult) -> None:
         self.execute(
-            "INSERT INTO query_results VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO query_results(query_id, ts, status, answer, confidence, model, input_tokens, "
+            "output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, duration_ms, num_turns, "
+            "error, scope, route, provider) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 query_id, time.time(), r.status, r.answer, r.confidence, r.model,
                 r.input_tokens, r.output_tokens, r.cache_read_tokens, r.cache_write_tokens,
-                r.cost_usd, r.duration_ms, r.num_turns, r.error, r.scope, r.route,
+                r.cost_usd, r.duration_ms, r.num_turns, r.error, r.scope, r.route, r.provider,
             ),
         )
 

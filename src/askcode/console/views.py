@@ -11,7 +11,7 @@ import re
 import time
 from urllib.parse import urlencode
 
-from askcode.console.data import CHECK_REASONS, ROUTE_KO, Freshness, Row, parse_answer
+from askcode.console.data import CHECK_REASONS, PROVIDER_KO, ROUTE_KO, Freshness, Row, parse_answer
 from askcode.slack.blocks import short_path, tool_step
 
 CONF_KO = {"high": "🟢 높음", "medium": "🟡 보통", "low": "🔴 낮음"}
@@ -99,6 +99,8 @@ def page(title: str, body: str, active: str = "") -> str:
 
 def chips(row: Row, domain_names: dict[str, str]) -> str:
     c = [f'<span class="chip">{e(ROUTE_KO.get(row.route or "", row.route or "처리 중"))}</span>']
+    if row.provider:
+        c.append(f'<span class="chip">{e(PROVIDER_KO.get(row.provider, row.provider))}</span>')
     if row.confidence and row.has_answer:
         c.append(f'<span class="chip">{CONF_KO.get(row.confidence, row.confidence)}</span>')
     c += [f'<span class="chip">{e(domain_names.get(d, d))}</span>' for d in row.domains[:3]]
@@ -230,11 +232,14 @@ def detail(row: Row, view: str, cites: list[dict], fresh: Freshness, latest: str
     read, write, fresh_in = usage.get("cache_read_tokens") or 0, usage.get("cache_write_tokens") or 0, usage.get("input_tokens") or 0
     total_in = read + write + fresh_in
     hit = f"{100 * read / total_in:.0f}%" if total_in else "-"
+    # 구독 모드는 실제 과금이 없고 리스트 단가 환산값이다
+    cost_note = "토큰 × 공식 단가 환산 — 구독이라 실제 과금 없음" if row.provider == "subscription" else "토큰 × 공식 단가, 스코핑 포함"
     usage_html = (f'<table><tr><th>경로</th><td>{e(ROUTE_KO.get(row.route or "", row.route))}</td></tr>'
+                  f'<tr><th>프로바이더</th><td>{e(PROVIDER_KO.get(row.provider or "", row.provider or "-"))}</td></tr>'
                   f'<tr><th>모델</th><td>{e(usage.get("model") or "-")}</td></tr>'
                   f'<tr><th>시간</th><td>{row.duration_ms / 1000:.1f}초 · 모델 호출 {usage.get("num_turns") or 0}회</td></tr>'
                   f'<tr><th>토큰</th><td>입력 {total_in:,} (캐시 재사용 {hit}, 쓰기 {write:,}) · 출력 {usage.get("output_tokens") or 0:,}</td></tr>'
-                  f'<tr><th>비용</th><td>{money(row.cost)} <span class="small muted">토큰 × 공식 단가, 스코핑 포함</span></td></tr>'
+                  f'<tr><th>비용</th><td>{money(row.cost)} <span class="small muted">{cost_note}</span></td></tr>'
                   f'<tr><th>오류</th><td>{e(row.error or "-")}</td></tr></table>')
     step_html = ("<ol class='steps'>" + "".join(f"<li>{e(tool_step(t, a))}</li>" for t, a in steps) + "</ol>"
                  if steps else '<p class="muted">도구 호출 없음 (되묻기·거절·빠른 종료)</p>')

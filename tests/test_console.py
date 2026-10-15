@@ -35,7 +35,7 @@ def seeded(tmp_path):
                                        model="claude-sonnet-5-5", input_tokens=10, output_tokens=200,
                                        cache_read_tokens=900, cache_write_tokens=100, cost_usd=0.04,
                                        duration_ms=15000, num_turns=5, error=kw.get("error"), scope=scope,
-                                       route=route))
+                                       route=route, provider=kw.get("provider", "api")))
         if cite:
             st.log_citation(qid, "code", "apps/worker/src/notifications/mobile-push-window.ts", 10, 20, True, "ok")
             st.log_citation(qid, "code", "apps/a/b.ts", 1, 3, False, "도구로 확인하지 않은 구간")
@@ -44,7 +44,8 @@ def seeded(tmp_path):
 
     ids = {
         "push": add("매일 받기로 설정하면 푸시가 아침 몇 시에 와요?"),
-        "sub1": add("구독은 한 사람이 몇 개까지 할 수 있어요?", answer="**최대 100개예요.**\n\n근거:\n- a/b.ts:1 — x"),
+        "sub1": add("구독은 한 사람이 몇 개까지 할 수 있어요?", answer="**최대 100개예요.**\n\n근거:\n- a/b.ts:1 — x",
+                    provider="subscription"),
         "sub2": add("구독은 최대 몇 개까지 가능해요?", answer="**코드는 100개, 기획서는 50개예요.**"),
         "eval": add("평가용 질문 푸시 시각", source="eval"),
         "low": add("<script>alert(1)</script> 화면 몇 개야?", answer="**<b>위험</b> 31개 안팎이에요.**",
@@ -118,6 +119,8 @@ def test_pages_escape_and_secure(seeded):
     assert "mobile-push-window.ts:10-20" in push and "apps/a/b.ts" not in push  # 기획자 보기는 검증된 근거만
     ops = client.get(f"/q/{ids['push']}?view=ops").text
     assert "제외: 도구로 확인하지 않은 구간" in ops and "코드 검색" in ops and "캐시 재사용 89%" in ops
+    sub_ops = client.get(f"/q/{ids['sub1']}?view=ops").text
+    assert "구독" in sub_ops and "구독이라 실제 과금 없음" in sub_ops  # 프로바이더 표시 + 비용 환산 주석
     assert client.get("/q/nope").status_code == 404
     assert "구독은 최대" in client.get("/search", params={"q": "구독 최대"}).text
     assert "확인 필요" in client.get("/check").text

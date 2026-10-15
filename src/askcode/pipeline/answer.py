@@ -111,6 +111,7 @@ class Answer:
     attachment_kind: str | None = None  # wireframe | flow
     comparison: bool = False  # 스크린샷 기반 변경안 목업 (원본 스크린샷과 비교)
     vision_cost_usd: float = 0.0  # 스크린샷 문구 추출 비용 (cost_usd에 포함)
+    provider: str | None = None  # api | subscription — 슬랙 메타 줄에 표시
 
 
 def _split_evidence(text: str) -> tuple[str, str]:
@@ -179,7 +180,7 @@ class AnswerService:
                  max_turns: int = 12, max_budget_usd: float | None = None, *, scoper: Scoper | None = None,
                  domain_map: DomainMap | None = None, doc_tools: DocTools | None = None,
                  structure_tools: StructureTools | None = None, models: dict[str, str] | None = None,
-                 efforts: dict[str, str | None] | None = None):
+                 efforts: dict[str, str | None] | None = None, provider: str = "api"):
         self.store = store
         self.repo = repo
         self.repo_path = repo_path
@@ -193,6 +194,7 @@ class AnswerService:
         self.structure_tools = structure_tools
         self.models = models or {}
         self.efforts = efforts or {}  # tier → effort, None이면 모델 기본값
+        self.provider = provider  # 답변에 실제 쓰인 인증 경로를 결과·표시에 남긴다
 
     # ---------- 도구 ----------
     def _overview(self) -> str:
@@ -363,9 +365,9 @@ class AnswerService:
         except LLMUnavailable as exc:
             self.store.log_result(query_id, QueryResult(status="error", answer=UNAVAILABLE_TEXT, confidence="low",
                                                         model=self.models.get("small"), error=str(exc), route="unavailable",
-                                                        cost_usd=vision_cost))
+                                                        cost_usd=vision_cost, provider=self.provider))
             return Answer(query_id, UNAVAILABLE_TEXT, [], "low", commit, status="error", route="unavailable", error=str(exc),
-                          cost_usd=vision_cost, vision_cost_usd=vision_cost)
+                          cost_usd=vision_cost, vision_cost_usd=vision_cost, provider=self.provider)
         scope_cost += vision_cost
         route = route_for(scope) if (self.scoper or forced_domains is not None) else Route("agent", "large", self.max_turns)
         comparison = route.name == "wireframe" and has_image
@@ -379,9 +381,10 @@ class AnswerService:
                 options = [(d.id, d.name) for d in (self.domain_map.get(i) for i in ids) if d] if self.domain_map else []
                 body = scope.clarify_question or "질문 범위가 넓어요. 어느 부분이 궁금한지 골라 주세요."
             self.store.log_result(query_id, QueryResult(status=route.name, answer=body, confidence=None, model=self.models.get("small"),
-                                                        cost_usd=scope_cost, scope=scope.to_json(), route=route.name))
+                                                        cost_usd=scope_cost, scope=scope.to_json(), route=route.name,
+                                                        provider=self.provider))
             return Answer(query_id, body, [], "low", commit, status=route.name, route=route.name, scope=scope,
-                          options=options, cost_usd=scope_cost, vision_cost_usd=vision_cost)
+                          options=options, cost_usd=scope_cost, vision_cost_usd=vision_cost, provider=self.provider)
 
         # 3) 에이전트
         session = ToolSession()
@@ -472,7 +475,7 @@ class AnswerService:
             model=resp.model, input_tokens=resp.input_tokens, output_tokens=resp.output_tokens,
             cache_read_tokens=resp.cache_read_tokens, cache_write_tokens=resp.cache_write_tokens,
             cost_usd=total_cost, duration_ms=resp.duration_ms, num_turns=resp.num_turns, error=resp.error,
-            scope=scope.to_json(), route=route.name,
+            scope=scope.to_json(), route=route.name, provider=self.provider,
         ))
         cited_paths = {c.path for c in verified}
         return Answer(query_id, body, verified, confidence, commit, status="answer", route=route.name, scope=scope,
@@ -480,4 +483,4 @@ class AnswerService:
                       config_dependent=bool(cited_paths & session.config_dependent), tool_calls=len(resp.tool_calls),
                       domain_names=[d.name for d in (self.domain_map.get(i) for i in scope.domains) if d] if self.domain_map else [],
                       attachment=attachment, attachment_kind=attachment_kind, followups=followups,
-                      comparison=comparison, vision_cost_usd=vision_cost)
+                      comparison=comparison, vision_cost_usd=vision_cost, provider=self.provider)

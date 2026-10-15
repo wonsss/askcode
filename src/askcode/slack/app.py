@@ -11,7 +11,7 @@ import httpx
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 
-from askcode.llm.complete import LLM
+from askcode.llm.complete import Completer
 from askcode.pipeline.answer import AnswerService, evidence_notes
 from askcode.pipeline.screenshot import ALLOWED_TYPES, MAX_BYTES, ScreenCapture, extract_screen
 from askcode.slack.blocks import answer_blocks, evidence_blocks, fallback_text, mark_followup_picked, thinking_blocks
@@ -34,7 +34,7 @@ DEFAULT_SCREEN_QUESTION = "이 화면은 어떤 코드로 구현돼 있고, 주�
 
 
 def build_app(bot_token: str, service: AnswerService, store: Store, escalation_channel: str | None,
-              llm: LLM | None = None) -> AsyncApp:
+              llm: Completer | None = None) -> AsyncApp:
     app = AsyncApp(token=bot_token)
     inflight = asyncio.Semaphore(4)  # 동시 에이전트 실행 수 제한
 
@@ -148,7 +148,7 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
                              "WHERE query_id=? ORDER BY id", (query_id,)).fetchall()
         commit = store.execute("SELECT commit_sha FROM queries WHERE id=?", (query_id,)).fetchone()
         res = store.execute("SELECT route, cost_usd, duration_ms, num_turns, input_tokens, output_tokens, cache_read_tokens, "
-                            "cache_write_tokens, answer FROM query_results WHERE query_id=?", (query_id,)).fetchone()
+                            "cache_write_tokens, answer, provider FROM query_results WHERE query_id=?", (query_id,)).fetchone()
         notes = evidence_notes(res["answer"]) if res else {}
         base = service.repo.web_base
         cites = []
