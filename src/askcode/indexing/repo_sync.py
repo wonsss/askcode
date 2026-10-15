@@ -86,6 +86,17 @@ class RepoSync:
     def path_for(self, repo: RepoConfig) -> Path:
         return self.settings.repos_dir / repo.name
 
+    def tree(self, repo: RepoConfig) -> list[tuple[str, str]]:
+        """현재 체크아웃의 (경로, git blob 해시) 목록."""
+        out = _git(["ls-tree", "-r", "--full-tree", "HEAD"], cwd=self.path_for(repo))
+        rows = []
+        for line in out.splitlines():
+            meta, _, path = line.partition("\t")
+            parts = meta.split()
+            if len(parts) == 3 and parts[1] == "blob":
+                rows.append((path, parts[2]))
+        return rows
+
     def head(self, repo: RepoConfig) -> str | None:
         path = self.path_for(repo)
         if not (path / ".git").exists():

@@ -56,6 +56,8 @@ class Container:
             stats["repo_docs"] = index_repo_docs(self.store, root, files, self.repo.web_base, result.commit_sha,
                                                  self.service.code_tools.filter)
         self.store.set_repo_state(self.repo.name, result.commit_sha)
+        if not self.store.has_commit_files(self.repo.name, result.commit_sha):
+            self.store.record_commit_files(self.repo.name, result.commit_sha, self.sync.tree(self.repo))
         if external:
             stats.update(self.refresh_external())
         return RefreshReport(result.commit_sha, result.previous_sha, len(result.changed_files), reindex, stats)

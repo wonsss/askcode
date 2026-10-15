@@ -14,6 +14,16 @@ from typing import Any
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 
+-- 커밋별 파일 git 해시. 얕은 클론이라 예전 커밋과 diff를 못 하므로, 웹 콘솔이 답변의 최신성
+-- (근거 파일이 그 뒤로 바뀌었는지)을 해시 비교로 판단하는 데 쓴다. 감사 로그가 아니다.
+CREATE TABLE IF NOT EXISTS commit_files (
+  repo TEXT NOT NULL,
+  commit_sha TEXT NOT NULL,
+  path TEXT NOT NULL,
+  blob TEXT NOT NULL,
+  PRIMARY KEY (repo, commit_sha, path)
+);
+
 CREATE TABLE IF NOT EXISTS repo_state (
   repo TEXT PRIMARY KEY,
   commit_sha TEXT NOT NULL,
@@ -188,6 +198,15 @@ class Store:
             "ON CONFLICT(repo) DO UPDATE SET commit_sha=excluded.commit_sha, synced_at=excluded.synced_at",
             (repo, commit_sha, time.time()),
         )
+
+    def has_commit_files(self, repo: str, commit_sha: str) -> bool:
+        return self.execute("SELECT 1 FROM commit_files WHERE repo=? AND commit_sha=? LIMIT 1",
+                            (repo, commit_sha)).fetchone() is not None
+
+    def record_commit_files(self, repo: str, commit_sha: str, rows: list[tuple[str, str]]) -> None:
+        """(path, blob) 목록을 그 커밋 스냅숏으로 기록한다. 이미 있으면 덮어쓰지 않는다."""
+        self.executemany("INSERT OR IGNORE INTO commit_files(repo, commit_sha, path, blob) VALUES (?,?,?,?)",
+                         [(repo, commit_sha, path, blob) for path, blob in rows])
 
     def get_repo_commit(self, repo: str) -> str | None:
         row = self.execute("SELECT commit_sha FROM repo_state WHERE repo=?", (repo,)).fetchone()
