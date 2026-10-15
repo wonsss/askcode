@@ -7,7 +7,7 @@
 - 데모 시나리오: [docs/demo-scenario.md](docs/demo-scenario.md)
 - 비용 모델과 실측: [docs/cost.md](docs/cost.md)
 - 와이어프레임 생성: [docs/wireframe.md](docs/wireframe.md)
-- 웹 콘솔 기획(미구현): [docs/web-console.md](docs/web-console.md)
+- 웹 콘솔: [docs/web-console.md](docs/web-console.md) (v1: 검색·답 상세·최신성·확인 필요·평가 이력)
 - 정책·흐름 답변의 로직 흐름도: [docs/flowchart.md](docs/flowchart.md)
 - 데모 대상: [wonsss/law-watch](https://github.com/wonsss/law-watch) (main)
 
@@ -43,6 +43,7 @@ uv run askcode ask "알림 로직 알려줘" --domains follows-push
 uv run askcode ask "커뮤니티 기능 추가 시 와이어프레임 만들어줘"   # → data/wireframes/*.html
 uv run askcode eval             # 골든 세트 28문항 평가 → eval/results/eval-*.md
 uv run askcode serve            # 슬랙 봇
+uv run askcode console          # 웹 콘솔 http://127.0.0.1:8787 (로컬 전용, 읽기 전용, API 비용 없음)
 uv run askcode stats            # 질문 수·비용·경로·확신도·피드백·범위 미스
 uv run pytest
 ```

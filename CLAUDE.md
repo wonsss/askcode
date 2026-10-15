@@ -21,7 +21,8 @@ uv run askcode ask "질문" [--domains follows-push]
 uv run askcode eval [--ids q01,q26] [--limit N]   # 골든 세트 28문항 → eval/results/
 uv run askcode serve             # 슬랙 봇 (Socket Mode)
 uv run askcode stats
-uv run pytest                    # 103개
+uv run askcode console           # 웹 콘솔 127.0.0.1:8787 (읽기 전용, API 비용 없음)
+uv run pytest                    # 110개
 ```
 
 ## 구조 요약
@@ -33,6 +34,7 @@ uv run pytest                    # 103개
 - `tools/` code_search·read_code·list_dir · find_screen·find_api·find_bridge · search_docs·read_doc
 - `indexing/` repo_sync(GitHub App) · code_index · structure(API·라우트·manifest·브리지 맵) · docs_index · notion_source · slack_source
 - `store/db.py` SQLite. 감사 로그 테이블은 트리거로 append-only
+- `console/` 웹 콘솔(Starlette, 감사 로그 읽기 전용 연결, 최신성은 `commit_files` 해시 비교)
 - `config/` repos.yaml · domains.yaml(13개 도메인) · glossary.yaml · `eval/golden.yaml`(28문항)
 
 ## 지켜야 할 것
@@ -45,7 +47,7 @@ uv run pytest                    # 103개
 
 ## 현재 상태 (2026-10-15)
 
-- 테스트 103개 통과. 실제 Claude API·슬랙으로 실측 완료. 골든 세트 2차 평가 86%(24/28), 이후 노션 3문항(q26~q28) 통과. 단, 답변 문체를 바꾼 뒤 28문항 전체를 다시 돌리지는 않았다.
+- 테스트 110개 통과. 실제 Claude API·슬랙으로 실측 완료. 골든 세트 2차 평가 86%(24/28), 이후 노션 3문항(q26~q28) 통과. 단, 답변 문체를 바꾼 뒤 28문항 전체를 다시 돌리지는 않았다.
 - 비용은 SDK 보고값이 아니라 토큰 × 단가로 계산한다(`llm/pricing.py`). 경로별 실측과 월 비용 추정은 `docs/cost.md`.
 - **API 비용이 드는 작업(eval·ask)은 예상 금액을 먼저 사용자에게 말한다.** 전체 평가 1회 약 $0.85.
 - `.env` 입력 완료: Claude 키, 슬랙 봇·앱 토큰, GitHub App(ID·설치 ID·`secrets/github-app.pem`). GitHub App으로 law-watch 클론·인덱싱 확인됨(`data/`, main@31bcf1e). 확인 요청 채널(`ASKCODE_ESCALATION_CHANNEL`)도 설정됨.
@@ -54,5 +56,6 @@ uv run pytest                    # 103개
 - 와이어프레임 생성 구현(모델은 화면 명세 JSON만 출력 → 렌더러가 저충실도 HTML, 슬랙 파일 업로드). `files:write` 추가·재설치 완료. HTML 직접 작성 때 $0.093~0.105·40초 → 명세 방식 CLI 실측 $0.040(캐시 있음)/$0.068(캐시 없음)·16~17초. 명세 방식은 슬랙에서 아직 확인하지 않았다. 상세는 `docs/wireframe.md`.
 - 정책·흐름 질문(policy·multi_hop)에 로직 흐름도: 모델은 ```flow 명세만 내고 렌더러가 회색조 SVG HTML을 그림(외부 렌더러 없음). 슬랙은 `flow-*.html` 업로드, CLI는 `data/diagrams/`. 추가 비용은 출력 약 450~770토큰·+$0.005~0.008/건(CLI 2건·슬랙 1건 실측). 슬랙 미리보기 확인 완료(`docs/screenshots/flowchart-slack.webp`). 상세는 `docs/flowchart.md`.
 - 답변 끝에 '💬 이어서 물어보기' 후속 질문 버튼 2~3개(에이전트가 "후속 질문:" 목록으로 같이 출력 → `extract_followups`로 떼어 버튼화). 답변당 출력 약 +50~100토큰.
+- 웹 콘솔 v1 구현(`askcode console`). 동기화 때 커밋별 파일 해시(`commit_files`)를 기록해 답의 최신성을 판단한다. P1(산출물 보관·도메인 FAQ·슬랙 기존 답 제안 등)은 미구현.
 - 남은 실패: q11(스코핑이 가끔 되묻기로 분류), q14(웹 기본 페이지 크기 6건 누락).
 - 에이전트 SDK 하위 프로세스는 부모 환경변수를 물려받는다. 그래서 Claude 키·주소는 셸 값을 무시하고 `.env`만 쓴다(`ANTHROPIC_API_KEY`·`ANTHROPIC_BASE_URL`, 하위 프로세스의 `ANTHROPIC_AUTH_TOKEN`은 비움). Claude 데스크톱 터미널에서 띄웠을 때 셸 키가 `.env`를 덮어써 401이 난 적이 있다. `serve`는 시작할 때 1토큰 호출로 키·크레딧을 확인하고, 문제가 있으면 원인을 출력하고 멈춘다.
