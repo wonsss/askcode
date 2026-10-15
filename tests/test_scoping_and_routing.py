@@ -133,3 +133,22 @@ def test_clarify_options_backfilled_from_terms():
     assert ids[0] == "follows-push" and len(ids) >= 2 and "admin-ops" in ids
     many = Scope(kind="broad", options=["bills", "people", "nope"])
     assert m.clarify_options(many, "알림") == ["bills", "people"]
+
+
+async def test_simple_route_failure_escalates_to_agent(store, tools, repo_cfg, repo_dir):
+    class FlakySmall:
+        def __init__(self):
+            self.models = []
+
+        async def run(self, request):
+            self.models.append(request.model)
+            if request.model == "s":
+                return AgentResponse(text="", model="s", error="error_max_turns", cost_usd=0.01, tool_calls=["code_search"])
+            return AgentResponse(text="답\n\n근거:\n- apps/api/src/bills/bills.controller.ts:1-2 — x", model="L", cost_usd=0.05)
+
+    runner = FlakySmall()
+    svc = AnswerService(store, repo_cfg, repo_dir, runner, tools, domain_map=DMAP, models={"small": "s", "large": "L"},
+                        scoper=FakeScoper(Scope(kind="simple", domains=["bills"], confidence="high")))
+    a = await svc.answer("의안 상세는?")
+    assert runner.models == ["s", "L"] and a.route == "agent" and a.body == "답"
+    assert abs(a.cost_usd - 0.06) < 1e-9 and a.tool_calls == 1 and "에이전트 재시도" in a.scope.reason

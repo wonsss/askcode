@@ -269,6 +269,18 @@ class AnswerService:
             prompt, system, self._tools(query_id, session), route.max_turns or self.max_turns, self.max_budget_usd,
             model=self.models.get(route.tier),
         ))
+        if route.name == "simple" and resp.error and not resp.text.strip():
+            # 소형 모델이 턴 한도 등으로 답을 못 내면 대형 에이전트로 한 번 올린다 (도구로 본 구간은 이어서 쓴다)
+            first = resp
+            route = Route("agent", "large", self.max_turns)
+            resp = await self.runner.run(AgentRequest(
+                prompt, system, self._tools(query_id, session), route.max_turns, self.max_budget_usd,
+                model=self.models.get(route.tier),
+            ))
+            resp.cost_usd += first.cost_usd
+            resp.duration_ms += first.duration_ms
+            resp.tool_calls = [*first.tool_calls, *resp.tool_calls]
+            scope.reason += f" · 단순 경로 실패({first.error})로 에이전트 재시도"
 
         # 4) 인용 검증과 확신도
         body, evidence = _split_evidence(resp.text)
