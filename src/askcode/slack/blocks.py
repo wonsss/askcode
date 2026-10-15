@@ -85,7 +85,7 @@ def answer_blocks(a: Answer, note: str | None = None) -> list[dict]:
         return refuse_blocks(a)
     if a.status == "error":
         return [{"type": "section", "text": {"type": "mrkdwn", "text": f"⚠️ {a.body}"}}]
-    meta = (["🖼 현재 vs 변경안"] if a.comparison else ["🖼 와이어프레임"]) if a.route == "wireframe" else []
+    meta = (["🖼 변경안 (원본 스크린샷과 비교)"] if a.comparison else ["🖼 와이어프레임"]) if a.route == "wireframe" else []
     meta.append(CONFIDENCE_LABEL.get(a.confidence, a.confidence))
     if a.domain_names:
         meta.append(" · ".join(a.domain_names))

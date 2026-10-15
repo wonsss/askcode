@@ -144,7 +144,7 @@ def sanitize_html(raw: str) -> str:
 # 명세 스키마 (모델이 ```json 블록으로 낸다. 모든 필드는 선택이고, 모르는 키는 무시한다)
 #   {"title": str, "platform": "app"|"web",
 #    "screens": [{"name": str, "variant": "current"|"proposed"(선택), "elements": [요소, ...]}]}
-#   variant가 있으면 '현재 vs 변경안' 비교 목업이다. 현재 프레임은 스크린샷·코드로 재구성한 화면이다.
+#   variant: proposed는 변경안 프레임(스크린샷 경로는 이것만 그리고 원본 스크린샷과 비교), current는 재구성한 현재 화면.
 # 요소 공통: "type"(아래 중 하나), "note"(있으면 번호 주석 ①②…을 달고 프레임 아래 설명에 쓴다),
 #   "new"(bool, 변경안 프레임에서만: 새로 추가·바뀐 요소 → 점선 테두리 + 🆕)
 #   header      title, left, right(문자열), large(bool: 큰 제목형, 기본은 내비게이션 바형)
@@ -264,6 +264,11 @@ def is_comparison(spec: dict) -> bool:
     """'현재'와 '변경안' 프레임이 모두 있는 비교 목업인가."""
     variants = {s.get("variant") for s in spec.get("screens") or []}
     return {"current", "proposed"} <= variants
+
+
+def has_proposal(spec: dict) -> bool:
+    """변경안 프레임이 있는가. 스크린샷 변경 요청은 변경안만 그리고 원본 스크린샷과 비교한다."""
+    return any(s.get("variant") == "proposed" for s in spec.get("screens") or [])
 
 
 def new_element_count(spec: dict) -> int:
@@ -429,8 +434,14 @@ def render_spec(spec: dict) -> str:
     r = _Renderer(web=spec.get("platform") == "web")
     title = _t(spec.get("title")) or "와이어프레임"
     screens = "".join(r.screen(s) for s in spec["screens"])
-    sub = ('<p class="sub">현재 화면은 스크린샷과 코드로 재구성한 저충실도 그림이라 실제와 세부가 다를 수 있어요. '
-           '변경안에서 점선 테두리와 🆕는 새로 추가·바뀐 요소예요.</p>' if is_comparison(spec) else "")
+    if is_comparison(spec):
+        sub = ('<p class="sub">현재 화면은 스크린샷과 코드로 재구성한 저충실도 그림이라 실제와 세부가 다를 수 있어요. '
+               '변경안에서 점선 테두리와 🆕는 새로 추가·바뀐 요소예요.</p>')
+    elif has_proposal(spec):
+        sub = ('<p class="sub">원본 스크린샷과 나란히 놓고 비교해 보세요. 저충실도 그림이라 실제 디자인과 세부가 다를 수 있어요. '
+               '점선 테두리와 🆕는 새로 추가·바뀐 요소예요.</p>')
+    else:
+        sub = ""
     return ("<!DOCTYPE html>\n<html lang=\"ko\"><head>"
             f'<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="{CSP}">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'

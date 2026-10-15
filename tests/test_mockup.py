@@ -1,4 +1,4 @@
-"""스크린샷 + 변경 요청 → '현재 vs 변경안' 목업."""
+"""스크린샷 + 변경 요청 → 변경안 목업 (원본 스크린샷과 나란히 비교)."""
 
 import json
 
@@ -10,7 +10,7 @@ from askcode.llm.pricing import estimate_cost
 from askcode.pipeline.answer import COMPARISON_MISSING, AnswerService
 from askcode.pipeline.scoping import DomainMap, Scope, Scoper, apply_screenshot_rule, is_change_request
 from askcode.pipeline.screenshot import ScreenCapture, extract_screen, screenshot_block
-from askcode.pipeline.wireframe import is_comparison, new_element_count, parse_spec, render_spec
+from askcode.pipeline.wireframe import has_proposal, is_comparison, new_element_count, parse_spec, render_spec
 from askcode.slack.blocks import answer_blocks
 
 HAIKU = "claude-haiku-5-5"
@@ -103,10 +103,21 @@ def test_render_comparison_marks_new_only_in_proposed():
     assert "<script" not in out.lower() and "&lt;script&gt;" in out
 
 
+PROPOSAL = {"title": COMPARE["title"], "platform": "app", "screens": [COMPARE["screens"][1]]}
+
+
+def test_render_proposal_alone_points_to_original_screenshot():
+    spec = parse_spec(json.dumps(PROPOSAL, ensure_ascii=False))
+    assert has_proposal(spec) and not is_comparison(spec) and new_element_count(spec) == 2
+    out = render_spec(spec)
+    assert out.count('class="frame"') == 1 and 'class="variant proposed">변경안' in out
+    assert "원본 스크린샷과 나란히" in out and out.count('class="isnew ') == 2
+
+
 def test_plain_wireframe_is_not_comparison():
     spec = parse_spec(json.dumps({"screens": [{"name": "a", "elements": [{"type": "text", "text": "x", "new": True}]}]}))
     out = render_spec(spec)
-    assert not is_comparison(spec) and 'class="isnew' not in out and 'class="sub"' not in out
+    assert not is_comparison(spec) and not has_proposal(spec) and 'class="isnew' not in out and 'class="sub"' not in out
 
 
 SHOT = ScreenCapture(texts=["의안 상세", "팔로우"], description="의안 상세 화면", layout=["상단 바", "팔로우 버튼"],
@@ -125,7 +136,7 @@ class FakeScoper:
 
 
 class MockupRunner:
-    def __init__(self, spec=COMPARE, dev="🔧 개발자 참고: `apps/api/src/bills/bills.controller.ts`, `apps/app/x/detail.tsx`, `GET /bills/:slug`"):
+    def __init__(self, spec=PROPOSAL, dev="🔧 개발자 참고: `apps/api/src/bills/bills.controller.ts`, `apps/app/x/detail.tsx`, `GET /bills/:slug`"):
         self.spec, self.dev = spec, dev
         self.requests = []
 
@@ -145,7 +156,8 @@ async def test_screenshot_change_request_builds_comparison_mockup(store, tools, 
     a = await svc.answer("이 화면에 공유 버튼 추가하면 어떻게 돼?", screenshot=SHOT)
     assert scoper.calls == [True] and a.route == "wireframe" and a.comparison
     q = runner.requests[0].question
-    assert "현재 vs 변경안" in q and '"variant":"current"' in q and "1. 상단 바" in q and "🔧 개발자 참고" in q
+    assert "변경안 목업 한 장" in q and '"variant": "proposed"' in q and '"variant": "current"' not in q
+    assert "1. 상단 바" in q and "🔧 개발자 참고" in q
     name, html = a.attachment
     assert name.startswith("mockup-") and 'class="variant proposed">변경안' in html and "🆕" in html
     # 근거로 확인한 화면 파일은 그대로, 확인하지 못한 파일엔 표시
@@ -153,11 +165,11 @@ async def test_screenshot_change_request_builds_comparison_mockup(store, tools, 
     assert f"`{CTRL}`," in dev and "`apps/app/x/detail.tsx`(근거 미확인)" in dev and "`GET /bills/:slug`" in dev
     assert a.citations and a.citations[0].path == CTRL and a.confidence == "high"
     assert a.vision_cost_usd == 0.0007 and a.cost_usd == pytest.approx(0.0507)
-    assert "현재 vs 변경안" in str(answer_blocks(a)) and "영향받는 코드" in str(answer_blocks(a))
+    assert "원본 스크린샷과 비교" in str(answer_blocks(a)) and "영향받는 코드" in str(answer_blocks(a))
 
 
-async def test_comparison_without_current_frame_says_so(store, tools, repo_cfg, repo_dir):
-    one = {"screens": [COMPARE["screens"][1]]}
+async def test_mockup_without_proposed_frame_says_so(store, tools, repo_cfg, repo_dir):
+    one = {"screens": [{"name": "의안 상세", "elements": COMPARE["screens"][1]["elements"]}]}
     svc = AnswerService(store, repo_cfg, repo_dir, MockupRunner(spec=one), tools,
                         scoper=FakeScoper(Scope(kind="wireframe", confidence="high")))
     a = await svc.answer("공유 버튼 추가하면?", screenshot=SHOT)
@@ -170,7 +182,7 @@ async def test_screenshot_question_keeps_code_lookup_and_adds_vision_cost(store,
                         scoper=FakeScoper(Scope(kind="multi_hop", confidence="high")))
     a = await svc.answer("이 화면은 어떤 코드야?", screenshot=SHOT)
     q = runner.requests[0].question
-    assert a.route == "agent" and not a.comparison and '"팔로우"' in q and "code_search" in q and "현재 vs 변경안" not in q
+    assert a.route == "agent" and not a.comparison and '"팔로우"' in q and "code_search" in q and "변경안 목업" not in q
     assert a.cost_usd == pytest.approx(0.0507)
 
 

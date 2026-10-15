@@ -29,7 +29,7 @@ def is_fatal_api_error(exc: Exception) -> bool:
     return isinstance(exc, anthropic.BadRequestError) and "credit balance" in str(exc).lower()
 
 
-# 스크린샷 + 이 문형이면 '현재 vs 변경안' 목업으로 보낸다 (예: "공유 버튼 추가하면 어떻게 돼?")
+# 스크린샷 + 이 문형이면 변경안 목업(원본 스크린샷과 비교)으로 보낸다 (예: "공유 버튼 추가하면 어떻게 돼?")
 CHANGE_RE = re.compile(r"(추가|넣|바꾸|바꿔|변경|빼|없애|옮기|옮겨|붙이)[가-힣]*?(면|다면)(?![가-힣])|목업|변경안|시안")
 
 
@@ -167,7 +167,7 @@ class Route:
 
 
 def apply_screenshot_rule(scope: Scope, question: str, has_image: bool) -> Scope:
-    """스크린샷 + 변경·추가 문형은 모델 분류와 무관하게 와이어프레임(현재 vs 변경안)으로 보낸다. 거절 유형은 건드리지 않는다."""
+    """스크린샷 + 변경·추가 문형은 모델 분류와 무관하게 와이어프레임(변경안 목업)으로 보낸다. 거절 유형은 건드리지 않는다."""
     if has_image and scope.kind not in ("out_of_scope", "unsupported", "wireframe") and is_change_request(question):
         scope.kind = "wireframe"
         scope.reason = (scope.reason + " · " if scope.reason else "") + "스크린샷 + 변경 요청 → 변경안 목업"

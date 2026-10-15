@@ -58,6 +58,8 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
                                              title=filename.removesuffix(".html"))
                 note = ("🧭 흐름도를 올렸어요. 조건별 갈래와 근거를 이 스레드의 HTML 파일에서 볼 수 있어요."
                         if answer.attachment_kind == "flow"
+                        else "🖼 변경안 HTML 파일을 올렸어요. 위에 올린 원본 스크린샷과 나란히 놓고 비교해 보세요."
+                        if answer.comparison
                         else "🖼 와이어프레임 HTML 파일을 이 스레드에 올렸어요. 내려받아 브라우저로 열어 보세요.")
             except Exception as exc:
                 log.warning("%s upload failed: %s", answer.attachment_kind, exc)

@@ -85,7 +85,7 @@ def cmd_ask(question: str, domains: str | None, image: str | None = None) -> Non
         out = Path(c.settings.data_dir) / ("diagrams" if flow else "wireframes") / filename
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(content, encoding="utf-8")
-        print(f"\n{'🧭 흐름도' if flow else '🖼 현재 vs 변경안' if a.comparison else '🖼 와이어프레임'}: {out}")
+        print(f"\n{'🧭 흐름도' if flow else '🖼 변경안 (원본 스크린샷과 비교)' if a.comparison else '🖼 와이어프레임'}: {out}")
     elif a.route == "wireframe":
         print("\n⚠️ 와이어프레임 HTML이 없습니다")
     if a.config_dependent:
@@ -162,7 +162,7 @@ def main() -> None:
     ask = sub.add_parser("ask")
     ask.add_argument("question")
     ask.add_argument("--domains", help="스코핑 없이 범위 지정 (쉼표 구분, 빈 값이면 전체)")
-    ask.add_argument("--image", help="화면 스크린샷 경로 (변경 요청이면 '현재 vs 변경안' 목업)")
+    ask.add_argument("--image", help="화면 스크린샷 경로 (변경 요청이면 변경안 목업)")
     ev = sub.add_parser("eval")
     ev.add_argument("--ids")
     ev.add_argument("--limit", type=int)

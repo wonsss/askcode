@@ -23,7 +23,7 @@ from askcode.pipeline.prompts import (
 from askcode.pipeline.scoping import DomainMap, LLMUnavailable, Route, Scope, Scoper, apply_screenshot_rule, route_for
 from askcode.pipeline.screenshot import ScreenCapture, screenshot_block, screenshot_context
 from askcode.pipeline.wireframe import (
-    WireframeSpecError, extract_html, extract_spec, is_comparison, parse_spec, render_spec, sanitize_html,
+    WireframeSpecError, extract_html, extract_spec, has_proposal, parse_spec, render_spec, sanitize_html,
     wireframe_filename,
 )
 from askcode.store.db import QueryResult, Store
@@ -44,7 +44,7 @@ UNSUPPORTED_TEXT = (
     "만들 수 있어요. 코드 수정·배포·문서 작성은 하지 않습니다."
 )
 WIREFRAME_MISSING = "와이어프레임을 그리지 못했어요. 화면을 하나로 좁혀 다시 요청해 주세요. (예: \"커뮤니티 글 목록 화면 와이어프레임\")"
-COMPARISON_MISSING = "현재 화면과 변경안을 나란히 그리지 못해 받은 그림만 올렸어요. 화면 하나와 바꿀 점 하나로 좁혀 다시 요청해 주세요."
+COMPARISON_MISSING = "변경안을 표시해 그리지 못해 받은 그림만 올렸어요. 화면 하나와 바꿀 점 하나로 좁혀 다시 요청해 주세요."
 DEV_NOTE_PATH_RE = re.compile(r"`([\w@.\-\[\]()가-힣]+(?:/[\w@.\-\[\]()가-힣]+)+\.\w+)`")
 LIMIT_TEXT = ("질문 하나에 쓸 수 있는 탐색 한도(비용·횟수)에 도달해 답을 끝맺지 못했어요. "
               "질문을 더 좁혀서 다시 물어봐 주세요. (예: 화면 하나, 조건 하나)")
@@ -108,7 +108,7 @@ class Answer:
     domain_names: list[str] = field(default_factory=list)  # 슬랙 표시용 도메인 이름
     attachment: tuple[str, str] | None = None  # (파일 이름, 정제된 HTML) — 와이어프레임·흐름도
     attachment_kind: str | None = None  # wireframe | flow
-    comparison: bool = False  # 스크린샷 기반 '현재 vs 변경안' 목업
+    comparison: bool = False  # 스크린샷 기반 변경안 목업 (원본 스크린샷과 비교)
     vision_cost_usd: float = 0.0  # 스크린샷 문구 추출 비용 (cost_usd에 포함)
 
 
@@ -395,7 +395,7 @@ class AnswerService:
         elif route.name == "wireframe" and not attachment:
             confidence = "low"
             body = (body + "\n\n" if body else "") + WIREFRAME_MISSING
-        elif comparison and not (spec and is_comparison(spec)):
+        elif comparison and not (spec and has_proposal(spec)):
             confidence = "low"
             body = (body + "\n\n" if body else "") + COMPARISON_MISSING
         elif resp.error and not body:
