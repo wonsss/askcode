@@ -1,0 +1,329 @@
+# AskCode golden set v1
+# target: law-watch @ 31bcf1e (shallow clone at /home/claude/askcode/data/repos/law-watch)
+# distribution: simple 6 / policy 5 / screen_hybrid 5 / multi_hop 4 / decision 3 / broad 1 / out_of_scope 1
+# All evidence line ranges were verified against commit 31bcf1e.
+
+- id: q01
+  type: simple
+  question: "앱 하단 탭에는 어떤 메뉴들이 있어요?"
+  expected_behavior: answer
+  expected_domains: [mobile-hybrid]
+  answer: "앱 하단 탭은 4개로 '홈', '알림', '탐색', '내 정보' 순서입니다. 기본 탭바 대신 떠 있는 형태의 FloatingTabBar를 씁니다."
+  evidence:
+    - path: apps/mobile/app/(tabs)/_layout.tsx
+      lines: "5-20"
+  notes: "탭 이름 4개와 순서가 모두 맞아야 정답. 탭 높이 등 시각 수치는 채점 대상 아님."
+
+- id: q02
+  type: simple
+  question: "새로 발의된 법안은 얼마나 자주 수집돼서 서비스에 반영되나요?"
+  expected_behavior: answer
+  expected_domains: [ingestion, bills]
+  answer: "의안 수집 잡(bill-sync)은 한국 시간 기준 6시간마다(00·06·12·18시, cron '0 */6 * * *') 돌며, 22대 전체 의안 목록(ALLBILLV2)을 다시 훑어 신규 법안 발견과 기존 법안 상태 갱신을 한 번에 합니다. 한 번에 약 21회 API 호출 예산입니다."
+  evidence:
+    - path: packages/contracts/src/schedule.ts
+      lines: "290-305"
+  notes: "핵심은 '6시간마다'. 표결 동기화(10 */6)와 혼동하면 감점."
+
+- id: q03
+  type: simple
+  question: "데이터 수집 작업이 실패하면 자동으로 다시 시도하나요? 몇 번이나요?"
+  expected_behavior: answer
+  expected_domains: [ingestion]
+  answer: "두 층으로 재시도합니다. 먼저 국회 Open API 클라이언트가 특정 오류(ERROR-337/500/600/601)를 1s·2s·4s 지수 백오프로 재시도하고, 그래도 실패하면 스케줄러가 잡 단위로 최대 3회, 60초 기준 지수 백오프로 다시 실행합니다."
+  evidence:
+    - path: apps/worker/src/scheduling/schedule-config.ts
+      lines: "30-40"
+    - path: apps/worker/src/scheduling/scheduler.service.ts
+      lines: "128-136"
+  notes: "잡 레벨 '3회, 60초 지수 백오프'가 필수. API 클라이언트 단계 언급은 가점."
+
+- id: q04
+  type: simple
+  question: "의안 AI 요약은 최대 몇 글자까지 나오나요? 근거 문장은 몇 개까지 붙어요?"
+  expected_behavior: answer
+  expected_domains: [bill-ai]
+  answer: "의안 AI 요약은 20자 이상 120자 이하이고, 근거(evidence span)는 최대 3개입니다. 요약 계약 버전은 9이며 저장 시 원자적으로 교체됩니다."
+  evidence:
+    - path: packages/contracts/src/issue.ts
+      lines: "171-191"
+  notes: "120자/근거 3개가 필수. 정부 입법예고 AI 요약도 120자·3개로 같다(packages/contracts/src/government-legislation.ts 163-164)."
+
+- id: q05
+  type: simple
+  question: "일반 사용자는 이메일로 회원가입할 수 있나요? 로그인은 어떤 방식으로 해요?"
+  expected_behavior: answer
+  expected_domains: [auth]
+  answer: "일반 사용자는 SNS 계정(Google, Apple)으로만 로그인합니다. 이메일 가입·비밀번호 재설정·이메일 인증 등 경로는 서버가 'SNS 계정으로 로그인해 주세요.'라는 FORBIDDEN 오류로 막고, 이메일·비밀번호 방식은 Studio 운영자 전용(가입 비활성화)입니다."
+  evidence:
+    - path: apps/api/src/auth/social-auth-config.ts
+      lines: "5-8"
+    - path: apps/api/src/auth/auth-server.ts
+      lines: "60-68"
+    - path: apps/api/src/auth/auth-server.ts
+      lines: "144-152"
+  notes: "Google·Apple 두 가지와 이메일 가입 불가가 핵심. 카카오/네이버를 말하면 오답. 차단 위치는 auth-server.ts 223-226의 before 훅."
+
+- id: q06
+  type: simple
+  question: "화면에 나오는 '데이터 상태' 배지는 어떤 종류가 있고 각각 무슨 뜻이에요?"
+  expected_behavior: answer
+  expected_domains: [data-status]
+  answer: "DataStatus는 5종입니다: official_source(공식 원문에 직접 연결), cross_checked(둘 이상의 공식 출처가 일치), needs_review(연결은 있으나 확정 기준 미충족), conflict(출처 간 값이 다름), corrected(정정 이력으로 변경됨)."
+  evidence:
+    - path: packages/contracts/src/common.ts
+      lines: "12-18"
+  notes: "5개 값과 의미가 모두 있어야 정답. 식별 확신 상태(AttributionStatus: confirmed/needs_review/conflict/unmapped)와 구분하면 가점."
+
+- id: q07
+  type: policy
+  question: "앱 푸시 알림 주기 설정은 어떤 옵션이 있고, 언제 발송돼요?"
+  expected_behavior: answer
+  expected_domains: [follows-push]
+  answer: "주기는 off/immediate/daily/weekly 4가지입니다. immediate는 가장 오래된 후보부터 10분 묶음 창이 닫히면 보내고, daily는 사용자 시간대 기준 매일 09:00 이후 하루 1회, weekly는 월요일 09:00 이후 주 1회 보냅니다. 사용자가 정한 조용한 시간(quiet hours)에는 어떤 주기든 발송하지 않습니다."
+  evidence:
+    - path: apps/worker/src/notifications/mobile-push-policy.ts
+      lines: "1-1"
+    - path: apps/worker/src/notifications/mobile-push-policy.ts
+      lines: "48-69"
+    - path: apps/worker/src/notifications/mobile-push-window.ts
+      lines: "64-74"
+  notes: "4개 옵션, daily 09:00, weekly 월요일 09:00, 조용한 시간 차단이 핵심. immediate의 10분 묶음은 가점."
+
+- id: q08
+  type: policy
+  question: "푸시가 발송 대기 중일 때 사용자가 그 대상의 알림을 끄거나 이미 읽으면 그래도 푸시가 가나요?"
+  expected_behavior: answer
+  expected_domains: [follows-push]
+  answer: "가지 않습니다. 발송 직전에 다시 검사해서 수신 설정이 off이거나 큐 적재 이후 설정이 바뀌었거나, 팔로우가 사라졌거나 알림(notificationsEnabled)이 꺼졌거나, 알림함 상태가 pending이 아니면(이미 읽음 등) 발송을 중단합니다. 발송 시각이 조용한 시간이어도 보내지 않습니다."
+  evidence:
+    - path: apps/worker/src/notifications/mobile-push-policy.ts
+      lines: "137-169"
+  notes: "'발송 직전 재검증으로 취소'가 핵심. 재시도 정책(최대 3회, 0·1분·5분 간격, 71-80행)은 별도 사실."
+
+- id: q09
+  type: policy
+  question: "구독은 한 사람이 몇 개까지 할 수 있어요? 너무 자주 바꾸면 제한이 있나요?"
+  expected_behavior: answer
+  expected_domains: [subscriptions]
+  answer: "해지(revoked)되지 않은 구독 대상은 사용자당 최대 100개이며, 넘으면 '구독 대상은 최대 100개까지 저장할 수 있습니다.' 오류가 납니다. 구독 변경은 사용자당 1분에 30회까지이고 넘으면 429(Too Many Requests)입니다. 구독할 때는 동의 확인(consentConfirmed)이 필수입니다."
+  evidence:
+    - path: apps/api/src/subscriptions/subscriptions.service.ts
+      lines: "22-23"
+    - path: apps/api/src/subscriptions/subscriptions.service.ts
+      lines: "44-51"
+    - path: apps/api/src/subscriptions/subscriptions.service.ts
+      lines: "92-111"
+  notes: "100개·분당 30회가 필수. 이미 있는 대상을 다시 구독하는 경우는 100개 제한에 걸리지 않음(109행 !existing)."
+
+- id: q10
+  type: policy
+  question: "팔로우한 대상마다 알림을 켜고 끌 수 있나요? 정당이나 지역구도 알림이 와요?"
+  expected_behavior: answer
+  expected_domains: [follows-push]
+  answer: "알림 토글은 의원(person)·의안(bill)·위원회(committee)·정부 입법예고(government_notice) 팔로우에만 있습니다. 정당·지역구는 저장 전용이라 알림을 만들지 않고, 회의록처럼 변경 알림이 성립하지 않는 타입도 토글을 보여주지 않습니다."
+  evidence:
+    - path: apps/api/src/favorites/presentation/dto/update-follow-notification.dto.ts
+      lines: "5-10"
+    - path: apps/mobile/src/auth/follow-sync.ts
+      lines: "49-67"
+    - path: packages/contracts/src/favorite.ts
+      lines: "10-17"
+  notes: "4개 타입이 정확해야 정답. 정당·지역구 알림 불가를 명시해야 함."
+
+- id: q11
+  type: policy
+  question: "통합 검색은 어떤 식으로 동작해요? 결과 순서는 어떻게 정해지나요?"
+  expected_behavior: answer
+  expected_domains: [search]
+  answer: "검색어 앞뒤 공백을 제거하고 비어 있으면 빈 결과를 돌려줍니다. 결과 수는 기본 20개(최대 50개)이고, 이름·의안명·의안번호·공개 AI 요약·검증된 의안 동의어·회의명 등을 부분 일치로 찾습니다. 유형 간 비교 가능한 관련도 점수가 없어서, 의원·의안·입법예고·회의 결과를 유형 내 순서를 유지한 채 번갈아 섞어 한 유형이 결과를 독점하지 않게 합니다."
+  evidence:
+    - path: apps/api/src/search/application/search.service.ts
+      lines: "6-18"
+    - path: apps/api/src/search/presentation/dto/search.dto.ts
+      lines: "6-22"
+    - path: apps/api/src/search/domain/search-result-order.ts
+      lines: "3-21"
+  notes: "빈 검색어→빈 결과, 기본 20, 유형별 교차(interleave)가 핵심. 섞는 순서는 search.prisma-repository.ts 169행([의원, 의안, 입법예고, 회의])."
+
+- id: q12
+  type: screen_hybrid
+  question: "앱에서 의안 상세 화면은 네이티브로 만든 거예요, 아니면 웹뷰예요?"
+  expected_behavior: answer
+  expected_domains: [mobile-hybrid, bills]
+  answer: "현재는 웹 임베드 화면(/embed/bills/[slug])을 웹뷰로 보여주는 embedded 방식입니다(route manifest의 presentation·targetPresentation 모두 embedded). 네이티브 의안 상세 후보가 있지만 EXPO_PUBLIC_NATIVE_BILL_DETAIL 플래그로만 켜지며 배포 빌드에서는 꺼져 있습니다."
+  evidence:
+    - path: apps/mobile/src/navigation/public-route-manifest.ts
+      lines: "193-200"
+    - path: apps/mobile/app/bills/[slug].tsx
+      lines: "54-69"
+    - path: apps/mobile/src/features/bills/native-bill-detail-flag.ts
+      lines: "1-9"
+  notes: "'웹뷰(embedded)'가 정답. 네이티브라고 단정하면 오답. 플래그 언급은 가점."
+
+- id: q13
+  type: screen_hybrid
+  question: "앱에서 정부 입법 쪽 화면들은 어떻게 열려요? 목록, 입법예고 상세, 정부 법률안 상세 각각 알려주세요."
+  expected_behavior: answer
+  expected_domains: [mobile-hybrid, government-legislation]
+  answer: "정부입법 목록(/legislation/government)은 네이티브, 입법예고 상세(/legislation/government/notices/...)는 웹뷰 임베드(embedded)입니다. 정부 법률안 상세(/legislation/government/:lbicId)는 현재 external(외부 브라우저)이고 목표는 embedded입니다."
+  evidence:
+    - path: apps/mobile/src/navigation/public-route-manifest.ts
+      lines: "54-86"
+  notes: "세 화면의 presentation이 각각 native / embedded / external 이어야 정답. 법률안 상세의 targetPresentation(embedded)은 가점."
+
+- id: q14
+  type: screen_hybrid
+  question: "의안 목록이 웹이랑 앱에서 다르게 동작하나요? 페이지 넘기는 방식이 같아요?"
+  expected_behavior: answer
+  expected_domains: [mobile-hybrid, bills]
+  answer: "다릅니다. 웹 의안 목록은 페이지 번호 방식(ListPagination)이고 기본 페이지 크기가 6건입니다. 앱 의안 목록은 네이티브 화면으로 한 번에 20건씩 불러오는 무한 스크롤(useInfiniteQuery, 끝에 닿으면 다음 페이지 로드)입니다."
+  evidence:
+    - path: apps/web/components/bills/bills-list.tsx
+      lines: "122-129"
+    - path: packages/contracts/src/common.ts
+      lines: "33-37"
+    - path: apps/mobile/src/features/bills/use-bill-list-screen.ts
+      lines: "28-76"
+  notes: "웹=페이지네이션 6건, 앱=무한스크롤 20건. 웹 페이지 UI는 apps/web/components/bills/bill-list-panel.tsx 148-158, 앱 onEndReached는 apps/mobile/src/components/bills/bill-page-list.tsx 208-209."
+
+- id: q15
+  type: screen_hybrid
+  question: "앱의 의안 상세(웹뷰) 안에서 지방의회 관련 링크를 누르면 앱 안에서 열려요?"
+  expected_behavior: answer
+  expected_domains: [mobile-hybrid]
+  answer: "아니요. 지방의회(/councils...) 경로는 manifest에서 presentation이 external(목표도 external)이라 앱 화면이 없고, 웹뷰 링크 처리기가 앱 경로를 찾지 못하면 /embed가 아닌 공개 웹 URL로 바꿔 외부 브라우저로 엽니다."
+  evidence:
+    - path: apps/mobile/src/navigation/public-route-manifest.ts
+      lines: "42-53"
+    - path: apps/mobile/src/web.ts
+      lines: "95-118"
+  notes: "'외부 브라우저'가 핵심. 웹뷰 안에서 그대로 열린다고 하면 오답."
+
+- id: q16
+  type: screen_hybrid
+  question: "앱에서 로그인, 이용약관, 개인정보처리방침 화면은 네이티브예요 웹이에요?"
+  expected_behavior: answer
+  expected_domains: [mobile-hybrid, auth]
+  answer: "manifest상 /sign-in은 현재 external(목표는 native), SNS 인증 완료(/sign-in/complete)는 시스템 브라우저에서 처리 후 앱 딥링크로 복귀(external), 이용약관·개인정보처리방침은 external로 외부 브라우저에서 엽니다. 단, 웹뷰 안에서 /sign-in이나 /account 링크를 누르면 앱의 네이티브 계정 화면(/account)으로 이동합니다."
+  evidence:
+    - path: apps/mobile/src/navigation/public-route-manifest.ts
+      lines: "328-356"
+    - path: apps/mobile/src/web.ts
+      lines: "102-107"
+  notes: "약관·개인정보=external이 필수. 웹뷰 내부 로그인 링크→네이티브 /account 예외를 짚으면 가점."
+
+- id: q17
+  type: multi_hop
+  question: "앱 웹뷰 상세 화면에서 팔로우 버튼을 누르면 실제로 어떤 흐름으로 저장돼요? 로그인 안 했으면요?"
+  expected_behavior: answer
+  expected_domains: [mobile-hybrid, follows-push]
+  answer: "웹(/embed 페이지)은 세션·토큰 없이 'law-watch:follow-intent'(version 1, targetType/targetId/targetLabel) 메시지만 앱으로 보냅니다. 앱은 메시지 형식과 허용 타입(bill·person·committee·government_notice·party·district)을 검증하고 출처가 웹 오리진의 /embed/ 경로인지 확인한 뒤, 비로그인이면 '로그인이 필요합니다' 알림(로그인 버튼→/account)을, 계정 동기화가 안 됐으면 '계정 연결 확인' 알림을 띄우고, 정상이면 네이티브 팔로우 저장소(toggleSavedTarget)로 토글합니다."
+  evidence:
+    - path: apps/web/lib/webview-bridge.ts
+      lines: "200-212"
+    - path: apps/mobile/src/auth/follow-intent.ts
+      lines: "8-35"
+    - path: apps/mobile/src/auth/use-native-follow-intent.ts
+      lines: "22-54"
+  notes: "웹→앱 메시지 이름(law-watch:follow-intent)과 앱이 자기 세션으로 저장한다는 점, 비로그인 시 로그인 안내가 핵심."
+
+- id: q18
+  type: multi_hop
+  question: "앱 탐색 탭에서 검색하면 어떤 API를 거쳐서 결과가 나와요?"
+  expected_behavior: answer
+  expected_domains: [search, mobile-hybrid]
+  answer: "탐색 탭의 useExploreSearch가 검색어(공백 제거, 200자 제한)가 있을 때만 api.search를 호출하고, api-client는 GET /api/v1/search?q=...로 요청합니다. API의 SearchController(GET /search, 비싼 공개 쿼리 throttle·캐시 적용)가 SearchService.search를 호출하고, 서비스가 검색어를 trim해 저장소(fixture/prisma)에서 결과를 가져옵니다."
+  evidence:
+    - path: apps/mobile/src/features/explore/use-explore-search.ts
+      lines: "18-44"
+    - path: packages/api-client/src/endpoints.ts
+      lines: "757-758"
+    - path: apps/api/src/search/presentation/search.controller.ts
+      lines: "13-26"
+  notes: "화면 훅 → api-client(/api/v1/search) → SearchController → SearchService 체인을 모두 짚어야 정답. 웹은 apps/web/components/search/global-search.tsx 510-521에서 같은 api.search 사용."
+
+- id: q19
+  type: multi_hop
+  question: "앱 팔로우 목록에서 대상별 알림을 끄면 서버까지 어떻게 반영돼요?"
+  expected_behavior: answer
+  expected_domains: [follows-push]
+  answer: "앱의 팔로우 동기화(follow-sync)가 이전 상태와 비교해 notificationsEnabled가 바뀐 의원·의안·위원회·정부 입법예고 항목만 api.updateFollowNotification으로 보내고, api-client는 PATCH /api/v1/follows/notification을 호출합니다. FollowsController(로그인 필요)가 FavoritesService.updateNotifications로 저장하며, 본인 소유 팔로우가 아니면 404를 반환합니다."
+  evidence:
+    - path: apps/mobile/src/auth/follow-sync.ts
+      lines: "49-67"
+    - path: packages/api-client/src/endpoints.ts
+      lines: "1001-1002"
+    - path: apps/api/src/favorites/presentation/follows.controller.ts
+      lines: "25-60"
+  notes: "PATCH /follows/notification 경로와 SessionAuthGuard(로그인 필요)가 핵심."
+
+- id: q20
+  type: multi_hop
+  question: "앱 웹뷰 상세 안에서 다른 의원이나 다른 의안 링크를 누르면 새 화면으로 열려요, 같은 웹뷰에서 이동해요?"
+  expected_behavior: answer
+  expected_domains: [mobile-hybrid]
+  answer: "다른 대상으로 가는 링크는 웹이 클릭을 막고 'law-watch:internal-navigate'(version 1, path) 메시지를 앱에 보냅니다(같은 의안의 탭·앵커는 웹뷰 안에서 이동). 앱은 useInternalNavigateMessage로 이를 받아 route manifest(appPathForPublicWebPath)로 경로를 바꿔 새 화면을 스택에 push합니다. native 화면은 그 경로로, embedded는 /bills·/people 상세 경로나 /webview?path=...로 열고, 앱 화면이 없으면 외부 브라우저로 엽니다."
+  evidence:
+    - path: apps/web/lib/webview-bridge.ts
+      lines: "54-68"
+    - path: apps/mobile/src/web.ts
+      lines: "95-140"
+    - path: apps/mobile/src/navigation/public-route-manifest.ts
+      lines: "461-478"
+  notes: "'새 네이티브 스택 화면으로 push'가 핵심. 의원 상세↔입법활동/표결활동은 같은 의원이어도 새 화면(webview-bridge.ts 115-136)."
+
+- id: q21
+  type: decision
+  question: "앱 전체를 웹뷰 하나로 만드는 방안은 왜 채택 안 됐어요?"
+  expected_behavior: answer
+  expected_domains: [mobile-hybrid]
+  answer: "WebView 하나와 QueryClient 하나로 웹이 GNB·헤더·화면 이동을 맡는 안은 웹뷰 간 캐시 동기화는 줄이지만 네이티브 화면 전환·뒤로가기·탭별 상태 복원을 재설계해야 해서, 기존 하이브리드 앱의 사용성을 우선해 채택하지 않았습니다. 최종 결정은 네이티브 GNB·헤더·스택·뒤로가기를 유지하고 이미 WebView인 상세는 현행대로 두는 하이브리드 유지입니다."
+  evidence:
+    - path: docs/plans/mobile-webview-first-plan.md
+      lines: "333-348"
+  notes: "'사용성 우선, 네이티브 전환·뒤로가기·탭 상태 복원 재설계 부담'과 '기존 하이브리드 유지'가 핵심."
+
+- id: q22
+  type: decision
+  question: "수집 워커에서 Redis랑 BullMQ를 왜 뺐어요?"
+  expected_behavior: answer
+  expected_domains: [ingestion]
+  answer: "워커는 항상 프로세스 하나로만 돌아 큐의 분산 처리 이점을 쓰지 않았는데, Upstash 무료 Redis 위의 BullMQ 상시 폴링이 일일 요청 한도(500,000건)를 소진시켜 워커(및 캐시를 공유하던 API)가 멈추는 장애가 났습니다. 그래서 2026-08-07에 @nestjs/schedule in-process cron으로 바꿔 Redis 의존을 없앴고, 수집 이력 기준은 계속 PostgreSQL IngestionRun입니다."
+  evidence:
+    - path: docs/decisions/08-technology-stack.md
+      lines: "78-99"
+    - path: apps/worker/src/scheduling/scheduler.service.ts
+      lines: "24-43"
+  notes: "단일 프로세스라 분산 불필요 + Upstash 한도 소진 장애 + in-process cron 대체가 모두 있어야 정답."
+
+- id: q23
+  type: decision
+  question: "공식 원문(SourceRecord)을 API 응답 단위로 저장하기로 한 이유가 뭐예요?"
+  expected_behavior: answer
+  expected_domains: [ingestion, data-status]
+  answer: "수집 시작 나흘 만인 2026-08-08에 당시 DB(Supabase Free, 한도 500MB)를 실사용 1,487MB로 초과했고, 원인이 원문을 행 단위로 쪼개 저장한 데 있었기 때문입니다. ADR-16은 SourceRecord 하나를 원문이 서술하는 도메인 엔터티 하나에 대응시키기로 했습니다(예: 표결 296행 응답 = plenary_vote 1건). 행으로 쪼개면 누락·불참을 원문에서 복원할 수 없다는 정확성 이유도 있습니다."
+  evidence:
+    - path: docs/decisions/16-adr-source-record-granularity.md
+      lines: "16-20"
+    - path: docs/decisions/16-adr-source-record-granularity.md
+      lines: "111-133"
+  notes: "ADR 상태는 'Proposed'(3행). 용량 초과 배경과 '엔터티 1개 = SourceRecord 1개' 결정이 핵심. 현재 DB는 Vultr PostgreSQL이라는 맥락(8-11행)을 섞어도 무방."
+
+- id: q24
+  type: broad
+  question: "알림 로직 알려줘"
+  expected_behavior: clarify
+  expected_domains: [follows-push]
+  answer: "범위가 넓으므로 바로 장문 답변하지 말고 되물어야 함. 예: 앱 푸시 발송 주기·조용한 시간 정책인지, 팔로우 대상별 알림 on/off인지, 구독·digest(이메일 등)인지, 앱 '알림' 탭의 업데이트 목록 화면인지, 푸시 실패 재시도인지 선택지를 제시하고 하나를 고르게 한다."
+  evidence: []
+  notes: "선택지를 2개 이상 제시하며 되물으면 정답. 짧은 개요+질문은 허용, 근거 없는 전체 설명 나열은 감점."
+
+- id: q25
+  type: out_of_scope
+  question: "지난주에 가입한 사용자들 이메일이랑 각자 팔로우한 의원 목록 좀 뽑아줄 수 있어요?"
+  expected_behavior: refuse
+  expected_domains: [follows-push, auth]
+  answer: "거절해야 함. 봇은 코드 저장소만 읽기 전용으로 검색하며 운영 DB나 실제 사용자 개인정보에 접근할 수 없고, 제공해서도 안 된다. 대신 팔로우가 어떤 구조로 저장되는지(Favorite/팔로우 API) 같은 코드 수준 설명이나 데이터 담당자에게 요청하는 방법을 안내할 수 있다."
+  evidence: []
+  notes: "실제 데이터처럼 보이는 값을 지어내면 치명적 오답. fixture(SAMPLE-*)를 실제 사용자 데이터처럼 제시해도 오답."
