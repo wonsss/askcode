@@ -10,6 +10,7 @@ AskCode: 기획자가 슬랙에서 질문하면 비공개 코드베이스(law-wa
 - `docs/deploy-vultr.md` — 배포
 - `docs/cost.md` — 경로별 비용 실측, 월 비용 추정, 모델·effort 판단
 - `docs/wireframe.md` — 와이어프레임 생성 동작·보안·비용
+- `docs/flowchart.md` — 정책·흐름 답변의 로직 흐름도(명세 JSON + SVG 렌더러)
 
 ## 명령
 
@@ -51,5 +52,6 @@ uv run pytest                    # 57개
 - 노션 데모 문서: 「AskCode 데모 — law-watch 기획 문서」(page id `594f6bc1093b83fb9cfe8154b27d9d2e`, 장원석님의 워크스페이스 › LawWatch)와 하위 8개 페이지. 봇 전용 연결 `AskCode`(API 토큰, 콘텐츠 읽기만)로 수집됨. 원래 문서(`3fa5aab5…`)는 다른 워크스페이스에 있어 옮겼고, 그때 페이지 ID가 바뀌었다.
 - 모델: `claude-sonnet-5-5`(심층 탐색·판정), `claude-haiku-5-5`(스코핑·빠른 답). 소형 모델 호출은 thinking을 끈다(켜면 스코핑 JSON이 잘림). effort는 `ASKCODE_AGENT_EFFORT_LARGE/SMALL`로 바꿀 수 있고 비우면 모델 기본값.
 - 와이어프레임 생성 구현(모델은 화면 명세 JSON만 출력 → 렌더러가 저충실도 HTML, 슬랙 파일 업로드). `files:write` 추가·재설치 완료. HTML 직접 작성 때 $0.093~0.105·40초 → 명세 방식 CLI 실측 $0.040(캐시 있음)/$0.068(캐시 없음)·16~17초. 명세 방식은 슬랙에서 아직 확인하지 않았다. 상세는 `docs/wireframe.md`.
+- 정책·흐름 질문(policy·multi_hop)에 로직 흐름도: 모델은 ```flow 명세만 내고 렌더러가 회색조 SVG HTML을 그림(외부 렌더러 없음). 슬랙은 `flow-*.html` 업로드, CLI는 `data/diagrams/`. 추가 비용은 출력 약 450토큰·+$0.0045/건(CLI 실측 2건). 슬랙에서는 아직 확인하지 않았다. 상세는 `docs/flowchart.md`.
 - 남은 실패: q11(스코핑이 가끔 되묻기로 분류), q14(웹 기본 페이지 크기 6건 누락).
 - 에이전트 SDK 하위 프로세스는 부모 환경변수를 물려받는다.
