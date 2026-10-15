@@ -14,6 +14,23 @@ def _terms(query: str) -> list[str]:
     return [t for t in re.split(r"[\s,.?!·/()\"'`]+", query) if len(t) >= 2][:8]
 
 
+def _diversify(scored: list, limit: int, reserved: int) -> list:
+    """상위 limit건을 고르되, 노션·슬랙 결과가 있으면 최대 reserved자리를 보장한다.
+
+    레포 문서가 같은 주제를 많이 다루면 노션 기획서가 순위에서 밀려, 기획서와 코드를 비교하는 질문에서
+    에이전트가 기획서를 보지 못했다(q26).
+    """
+    top = scored[:limit]
+    extra = [x for x in scored[limit:] if x[2]["source"] != "repo"][:reserved]
+    have = sum(1 for x in top if x[2]["source"] != "repo")
+    for x in extra[: max(0, reserved - have)]:
+        repo_idx = [i for i, y in enumerate(top) if y[2]["source"] == "repo"]
+        if not repo_idx:
+            break
+        top[repo_idx[-1]] = x
+    return sorted(top, key=lambda x: (x[0], x[1]), reverse=True)
+
+
 class DocTools:
     def __init__(self, store: Store, max_results: int = 8, max_lines: int = 120):
         self.store = store
@@ -53,7 +70,7 @@ class DocTools:
             scored.append((covered, score, r))
         scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
         out = []
-        for covered, score, r in scored[: self.max_results]:
+        for covered, score, r in _diversify(scored, self.max_results, reserved=0 if source else 3):
             snippet = _snippet(r["text"], terms)
             when = f" · 수정 {r['updated_at'][:10]}" if r["updated_at"] else ""
             out.append(f"[{SOURCE_KO.get(r['source'], r['source'])}] {r['path']}:{r['start_line']}-{r['end_line']} "

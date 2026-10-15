@@ -119,3 +119,15 @@ def test_notion_block_conversion():
 def test_screenshot_context():
     ctx = screenshot_context(["팔로우", "알림 받기"], "의안 상세")
     assert '"팔로우"' in ctx and "code_search" in ctx
+
+
+def test_search_docs_reserves_slots_for_notion():
+    from askcode.tools.doc_tools import _diversify
+
+    def row(src, i):
+        return (1, 100 - i, {"source": src, "path": f"{src}/{i}.md"})
+
+    scored = [row("repo", i) for i in range(10)] + [row("notion", 20), row("notion", 21)]
+    picked = _diversify(scored, 8, reserved=3)
+    assert len(picked) == 8 and sum(1 for x in picked if x[2]["source"] == "notion") == 2
+    assert _diversify(scored, 8, reserved=0) == scored[:8]
