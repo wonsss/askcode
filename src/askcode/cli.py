@@ -251,6 +251,23 @@ def cmd_redact(query_id: str, reason: str, operator: str | None) -> None:
     print(f"가림 완료: {query_id} (질문·답·도구 입력 텍스트). 행과 가림 기록은 남습니다. 처리자 {who}, 사유: {reason}")
 
 
+def cmd_status(as_json: bool, check_claude: bool) -> None:
+    """메뉴 막대 앱용 상태. 기본은 Claude를 부르지 않는다(--check-claude만 1토큰 호출)."""
+    from askcode.app_status import collect
+    from askcode.config import load_repos
+    from askcode.settings import Settings
+
+    s = Settings()
+    repo = load_repos(s.config_dir)[0]
+    st = collect(s, repo.name, repo.web_base, check_claude=check_claude)
+    if as_json:
+        print(json.dumps(st, ensure_ascii=False))
+        return
+    jobs = " · ".join(f"{k} {v['state']}" for k, v in st["jobs"].items())
+    print(f"{jobs}\n오늘 질문 {st['today']['questions']}건 ${st['today']['cost']:.4f} · 이번 주 ${st['week']['cost']:.4f} · "
+          f"확인 필요 {st['check']}건 · 최근 백업 {st['last_backup']['age_hours'] if st['last_backup'] else '-'}시간 전")
+
+
 def cmd_host(action: str, port: int) -> None:
     """맥북 호스트 모드 (launchd). API 키 인증 그대로, Claude 비용은 질문을 받을 때만 든다."""
     from askcode import host
@@ -303,6 +320,9 @@ def main() -> None:
     rd.add_argument("query_id")
     rd.add_argument("--reason", required=True)
     rd.add_argument("--operator")
+    sta = sub.add_parser("status", help="봇·콘솔·비용·확인 필요·백업 상태 (메뉴 막대 앱용 --json)")
+    sta.add_argument("--json", action="store_true")
+    sta.add_argument("--check-claude", action="store_true", help="1토큰 호출로 키·크레딧 확인 (약 $0.00001)")
     ho = sub.add_parser("host", help="맥북 호스트 모드: 봇·콘솔 상시 실행, 잠자기 방지, 매일 백업 (macOS)")
     ho.add_argument("action", choices=["on", "off", "status"])
     ho.add_argument("--port", type=int, default=8787)
@@ -331,6 +351,8 @@ def main() -> None:
         cmd_maintenance(args.vacuum)
     elif args.cmd == "redact":
         cmd_redact(args.query_id, args.reason, args.operator)
+    elif args.cmd == "status":
+        cmd_status(args.json, args.check_claude)
     elif args.cmd == "host":
         cmd_host(args.action, args.port)
     elif args.cmd == "console":

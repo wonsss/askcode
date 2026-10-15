@@ -118,24 +118,39 @@ def off() -> list[str]:
     return done
 
 
-def status(log_dir: Path) -> list[tuple[str, str, str]]:
-    """(이름, 상태, 최근 로그 한 줄)"""
-    out = []
+def job_states(log_dir: Path) -> dict[str, dict]:
+    """작업별 상태. state: running | waiting(재시작 대기·예약) | off"""
+    out = {}
     for name in ("bot", "console", "backup"):
         label = f"{LABEL_PREFIX}.{name}"
         r = _launchctl("print", f"{_domain()}/{label}")
+        pid, last_exit = None, None
         if r.returncode != 0:
-            state = "꺼짐"
+            state = "off"
         else:
             info = dict(line.strip().split(" = ", 1) for line in r.stdout.splitlines() if " = " in line)
-            pid = info.get("pid")
-            state = f"실행 중 (pid {pid})" if pid else ("대기 (매일 03:30)" if name == "backup"
-                                                     else f"재시작 대기 · 마지막 종료 {info.get('last exit code', '-')}")
+            pid = int(info["pid"]) if info.get("pid", "").isdigit() else None
+            last_exit = info.get("last exit code")
+            state = "running" if pid else "waiting"
         log = log_dir / f"{name}.log"
         last = ""
         if log.exists():
-            lines = [x for x in log.read_text(encoding="utf-8", errors="replace").splitlines()
+            lines = [x for x in log.read_text(encoding="utf-8", errors="replace").splitlines()[-200:]
                      if x.strip() and " INFO httpx" not in x]
-            last = lines[-1][:160] if lines else ""
-        out.append((name, state, last))
+            last = lines[-1][:200] if lines else ""
+        out[name] = {"state": state, "pid": pid, "last_exit": last_exit, "last_log": last}
+    return out
+
+
+def status(log_dir: Path) -> list[tuple[str, str, str]]:
+    """(이름, 상태 문장, 최근 로그 한 줄) — CLI 표시용"""
+    out = []
+    for name, j in job_states(log_dir).items():
+        if j["state"] == "off":
+            text = "꺼짐"
+        elif j["state"] == "running":
+            text = f"실행 중 (pid {j['pid']})"
+        else:
+            text = "대기 (매일 03:30)" if name == "backup" else f"재시작 대기 · 마지막 종료 {j['last_exit'] or '-'}"
+        out.append((name, text, j["last_log"]))
     return out
