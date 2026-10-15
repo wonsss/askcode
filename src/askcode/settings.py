@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from dotenv import dotenv_values
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -54,6 +55,15 @@ class Settings(BaseSettings):
     # 도구 상한
     search_max_results: int = 20
     read_max_lines: int = 200
+
+    def model_post_init(self, _context: object) -> None:
+        # ANTHROPIC_API_KEY는 이름이 다른 도구와 겹친다. Claude 데스크톱 터미널 같은 셸이 물려준 값이 .env의 봇 전용 키를
+        # 덮어쓰면 401(invalid x-api-key)이 나므로, 이 값만 .env를 우선한다. ASKCODE_* 설정은 지금처럼 환경변수가 우선이다.
+        env_file = self.model_config.get("env_file")
+        if isinstance(env_file, str) and Path(env_file).is_file():
+            key = dotenv_values(env_file).get("ANTHROPIC_API_KEY")
+            if key:
+                self.anthropic_api_key = SecretStr(key)
 
     @property
     def db_path(self) -> Path:

@@ -37,3 +37,15 @@ def test_audit_log_is_append_only(store):
         store.execute("UPDATE queries SET question='변조' WHERE id=?", (qid,))
     with pytest.raises(sqlite3.IntegrityError):
         store.execute("DELETE FROM query_results WHERE query_id=?", (qid,))
+
+
+def test_env_file_api_key_wins_over_shell(tmp_path, monkeypatch):
+    from askcode.settings import Settings
+
+    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=from-dotenv\nASKCODE_AGENT_MAX_TURNS=5\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "stale-shell-key")
+    monkeypatch.setenv("ASKCODE_AGENT_MAX_TURNS", "9")
+    s = Settings()
+    assert s.anthropic_api_key.get_secret_value() == "from-dotenv"
+    assert s.agent_max_turns == 9  # ASKCODE_* 는 환경변수가 우선(실험용 덮어쓰기 유지)
