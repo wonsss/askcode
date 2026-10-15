@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 
@@ -11,9 +12,9 @@ from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 
 from askcode.llm.complete import LLM
-from askcode.pipeline.answer import AnswerService
+from askcode.pipeline.answer import AnswerService, evidence_notes
 from askcode.pipeline.screenshot import ALLOWED_TYPES, MAX_BYTES, extract_screen, screenshot_context
-from askcode.slack.blocks import answer_blocks, fallback_text, thinking_blocks
+from askcode.slack.blocks import answer_blocks, evidence_blocks, fallback_text, thinking_blocks
 from askcode.store.db import Store
 
 log = logging.getLogger(__name__)
@@ -108,23 +109,28 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
         rows = store.execute("SELECT source, path, start_line, end_line, verified, reason FROM citations "
                              "WHERE query_id=? ORDER BY id", (query_id,)).fetchall()
         commit = store.execute("SELECT commit_sha FROM queries WHERE id=?", (query_id,)).fetchone()
+        res = store.execute("SELECT route, cost_usd, duration_ms, num_turns, input_tokens, output_tokens, cache_read_tokens, "
+                            "cache_write_tokens, answer FROM query_results WHERE query_id=?", (query_id,)).fetchone()
+        notes = evidence_notes(res["answer"]) if res else {}
         base = service.repo.web_base
-        lines = []
+        cites = []
         for r in rows:
-            loc = f"{r['path']}:{r['start_line']}" + (f"-{r['end_line']}" if r["end_line"] != r["start_line"] else "")
             doc = store.doc_file(r["path"]) if r["source"] in ("notion", "slack") else None
-            url = doc["url"] if doc else f"{base}/blob/{commit['commit_sha'] if commit else 'main'}/{r['path']}#L{r['start_line']}"
-            mark = "✅" if r["verified"] else f"⚠️ 제외({r['reason']})"
-            lines.append(f"{mark} <{url}|{loc}>")
+            sha = commit["commit_sha"] if commit else "main"
+            url = doc["url"] if doc else f"{base}/blob/{sha}/{r['path']}#L{r['start_line']}"
+            cites.append({"source": r["source"], "path": r["path"], "start": r["start_line"], "end": r["end_line"],
+                          "verified": bool(r["verified"]), "reason": r["reason"], "url": url,
+                          "note": notes.get((r["path"], r["start_line"]), "")})
         tools = store.execute("SELECT tool, input_json FROM tool_calls WHERE query_id=? ORDER BY id", (query_id,)).fetchall()
-        trail = "\n".join(f"{i + 1}. `{t['tool']}` {t['input_json'][:120]}" for i, t in enumerate(tools))
-        res = store.execute("SELECT route, cost_usd, duration_ms, num_turns FROM query_results WHERE query_id=?",
-                            (query_id,)).fetchone()
-        stat = (f"\n\n경로 `{res['route']}` · 도구 {len(tools)}회 · {(res['duration_ms'] or 0) / 1000:.1f}초 · "
-                f"${res['cost_usd'] or 0:.4f}") if res else ""
+        steps = []
+        for t in tools:
+            try:
+                steps.append((t["tool"], json.loads(t["input_json"])))
+            except ValueError:
+                steps.append((t["tool"], {}))
         channel, thread_ts = await _thread(body)
-        text = "*인용 전체*\n" + ("\n".join(lines) or "(없음)") + "\n\n*탐색 경로*\n" + (trail or "(없음)") + stat
-        await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text[:3900])
+        blocks = evidence_blocks(cites, steps, dict(res) if res else None)
+        await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="근거 전체", blocks=blocks)
 
     async def _feedback(ack, body, client, value: str, note: str):
         await ack()

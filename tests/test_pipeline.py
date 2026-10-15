@@ -108,3 +108,30 @@ def test_citation_line_is_short_and_plain():
     line = citation_line(c)
     assert short_path(c.path) == "navigation/public-route-manifest.ts"
     assert "|navigation/public-route-manifest.ts:193-200>" in line and "`" not in line and "bill-detail 화면 등록" in line
+
+
+def test_split_body_moves_footnotes_out():
+    from askcode.slack.blocks import split_body
+
+    main, foot = split_body("**결론**\n- 하나\n\n확인 필요: 운영 설정\n🔧 개발자 참고: `X`")
+    assert main == "**결론**\n- 하나" and foot == ["확인 필요: 운영 설정", "🔧 개발자 참고: `X`"]
+
+
+def test_evidence_notes_and_blocks():
+    from askcode.pipeline.answer import evidence_notes
+    from askcode.slack.blocks import evidence_blocks
+
+    notes = evidence_notes("답\n\n근거:\n- apps/mobile/app/(tabs)/_layout.tsx:5-17 — 탭 4개 순서")
+    assert notes == {("apps/mobile/app/(tabs)/_layout.tsx", 5): "탭 4개 순서"}
+    cites = [{"source": "code", "path": "apps/mobile/app/(tabs)/_layout.tsx", "start": 5, "end": 17, "verified": True,
+              "reason": "ok", "url": "https://x", "note": "탭 4개 순서"},
+             {"source": "code", "path": "apps/a/b.tsx", "start": 1, "end": 3, "verified": False,
+              "reason": "도구로 확인하지 않은 구간", "url": "https://y", "note": ""}]
+    steps = [("mcp__askcode__code_search", {"query": "BottomTab", "path_glob": "apps/mobile/**"}),
+             ("read_code", {"path": "apps/mobile/src/components/chrome/floating-tab-bar.tsx", "start": 1, "end": 60})]
+    res = {"route": "simple", "duration_ms": 8100, "cost_usd": 0.0033, "input_tokens": 8, "cache_read_tokens": 30000,
+           "cache_write_tokens": 10000, "output_tokens": 1500, "num_turns": 5}
+    text = str(evidence_blocks(cites, steps, res))
+    assert "<https://x|(tabs)/_layout.tsx:5-17>  탭 4개 순서" in text and "제외: 도구로 확인하지 않은 구간" in text
+    assert "코드 검색  “BottomTab” (apps/mobile 안에서)" in text and "chrome/floating-tab-bar.tsx 1–60줄" in text
+    assert "빠른 답(소형 모델)" in text and "입력 40.0k · 캐시 재사용 75%" in text

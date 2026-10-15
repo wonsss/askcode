@@ -74,6 +74,16 @@ def _split_evidence(text: str) -> tuple[str, str]:
     return text[: m.start()].strip(), text[m.end():].strip()
 
 
+def evidence_notes(text: str) -> dict[tuple[str, int], str]:
+    """저장된 답변의 근거 목록에서 (경로, 시작 줄) → 설명을 뽑는다. '근거 전체 보기'에서 쓴다."""
+    _, evidence = _split_evidence(text or "")
+    notes: dict[tuple[str, int], str] = {}
+    for line in evidence.splitlines():
+        for m in CITATION_RE.finditer(line):
+            notes.setdefault((m.group(1), int(m.group(2))), line[m.end():].strip(" -—:·"))
+    return notes
+
+
 class AnswerService:
     def __init__(self, store: Store, repo: RepoConfig, repo_path: Path, runner: AgentRunner, code_tools: CodeTools,
                  max_turns: int = 12, max_budget_usd: float | None = None, *, scoper: Scoper | None = None,
