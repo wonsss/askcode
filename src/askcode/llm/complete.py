@@ -25,6 +25,16 @@ class Completion:
     cache_write_tokens: int
 
 
+def _thinking(tier: Tier) -> dict:
+    """소형 모델 호출은 분류·추출이라 thinking을 끈다.
+
+    claude-haiku-5-5는 thinking이 기본으로 켜져 있어, 짧은 max_tokens를 thinking이 다 써 버리면
+    JSON이 잘리거나 비어 나온다(실측: 스코핑 400토큰 전부 thinking). disabled는 effort high 이하에서만
+    허용되며 기본 effort(medium)라 문제없다. 대형 모델(sonnet-5-5)은 disabled가 400이라 건드리지 않는다.
+    """
+    return {"thinking": {"type": "disabled"}} if tier == "small" else {}
+
+
 class LLM:
     def __init__(self, settings: Settings):
         key = settings.anthropic_api_key.get_secret_value() if settings.anthropic_api_key else None
@@ -44,6 +54,7 @@ class LLM:
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": prompt}],
+            **_thinking(tier),
         )
         return self._completion(msg, model)
 
@@ -61,6 +72,7 @@ class LLM:
                                              "data": base64.b64encode(image).decode()}},
                 {"type": "text", "text": prompt},
             ]}],
+            **_thinking(tier),
         )
         return self._completion(msg, model)
 
