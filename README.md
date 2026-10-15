@@ -14,7 +14,7 @@
 슬랙 (Socket Mode, 멘션·DM·스크린샷)
   └ 질의 파이프라인
      1. 스코핑   소형 모델 + 도메인 맵(config/domains.yaml) → 범위·유형·확신도
-     2. 라우팅   거절 · 되묻기(버튼) · 단순(소형 모델) · 에이전트(대형 모델)   ← 코드로 강제
+     2. 라우팅   거절 · 되묻기(버튼) · 단순(소형 모델) · 에이전트(대형 모델) · 와이어프레임(대형 모델)   ← 코드로 강제
      3. 에이전트 Claude Agent SDK, 내장 도구 끔, 읽기 전용 도구만, 범위 하드 필터(1회 확장)
         ├ find_screen  화면이 네이티브/웹뷰/외부 중 무엇인지, 화면 파일, 직접 호출 API
         ├ find_api     api-client 함수 → NestJS 컨트롤러 연결
@@ -37,6 +37,7 @@ uv run askcode sync             # 레포 클론 + 코드·구조·문서 인덱�
 uv run askcode ask "앱에서 의안 상세 화면은 네이티브야 웹뷰야?"
 uv run askcode ask "알림 로직 알려줘"                      # 되묻기 → 후보 도메인 출력
 uv run askcode ask "알림 로직 알려줘" --domains follows-push
+uv run askcode ask "커뮤니티 기능 추가 시 와이어프레임 만들어줘"   # → data/wireframes/*.html
 uv run askcode eval             # 골든 세트 28문항 평가 → eval/results/eval-*.md
 uv run askcode serve            # 슬랙 봇
 uv run askcode stats            # 질문 수·비용·경로·확신도·피드백·범위 미스
@@ -50,6 +51,7 @@ uv run pytest
 2. Bot Token Scopes
    - 기본: `app_mentions:read`, `chat:write`, `im:history`, `im:read`, `im:write`
    - 스크린샷 역추적: `files:read`
+   - 와이어프레임 HTML 파일 올리기: `files:write` (추가한 뒤 **앱을 워크스페이스에 다시 설치**해야 적용)
    - 슬랙 채널 소스: `channels:history`, `channels:read`, `users:read`
 3. Event Subscriptions: `app_mention`, `message.im`
 4. Interactivity 켜기 (Socket Mode라 Request URL 불필요)
@@ -93,6 +95,8 @@ uv run pytest
 
 ## 보안
 
+- 와이어프레임 HTML은 모델 출력이라 신뢰하지 않습니다. 허용 목록에 있는 태그·속성만 남기고 스크립트·외부 리소스·이벤트 속성·`javascript:` 링크를 지운 뒤, 외부 접근을 막는 CSP를 넣어 올립니다(`pipeline/wireframe.py`).
+
 - 봇은 코드·문서·슬랙 모두 읽기 전용입니다. 에이전트의 내장 도구(Bash, 파일 편집 등)는 꺼져 있고 허용 목록 밖 도구는 훅에서 차단합니다.
 - git 추적 파일만 인덱싱하며, `.env*`·키 파일은 설정과 무관하게 항상 차단합니다(`.env.example`만 허용).
 - GitHub 토큰은 git 명령마다 헤더로만 전달하고 `.git/config`에 남기지 않습니다.
@@ -105,4 +109,5 @@ uv run pytest
 
 - 구조 맵 추출기는 law-watch 구조(api-client `${V1}` 경로, NestJS 데코레이터, Expo Router, route manifest)에 맞춰져 있습니다. 다른 레포는 `StructureConfig`를 조정해야 합니다.
 - 단순 호출(스코핑·판정·스크린샷) 비용은 설정한 단가로 추정합니다. 에이전트 비용은 SDK가 보고한 값입니다.
-- 웹 콘솔·와이어프레임 생성은 설계 문서에만 있습니다.
+- 웹 콘솔은 설계 문서에만 있습니다.
+- 와이어프레임은 저충실도 HTML·CSS 한 장입니다. 실제 디자인 시스템·컴포넌트를 쓰지 않고, 기존 화면의 구성 관례(탭·헤더·목록)만 따릅니다. 이미지로 미리보기를 만들지 않으므로 파일을 내려받아 브라우저로 엽니다.
