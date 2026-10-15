@@ -106,6 +106,7 @@ class Answer:
     config_dependent: bool = False
     tool_calls: int = 0
     domain_names: list[str] = field(default_factory=list)  # 슬랙 표시용 도메인 이름
+    followups: list[str] = field(default_factory=list)  # 슬랙 '이어서 물어보기' 버튼
     attachment: tuple[str, str] | None = None  # (파일 이름, 정제된 HTML) — 와이어프레임·흐름도
     attachment_kind: str | None = None  # wireframe | flow
     comparison: bool = False  # 스크린샷 기반 변경안 목업 (원본 스크린샷과 비교)
@@ -119,6 +120,41 @@ def _split_evidence(text: str) -> tuple[str, str]:
     if not m:
         return text.strip(), ""
     return text[: m.start()].strip(), text[m.end():].strip()
+
+
+FOLLOWUP_HEADER_RE = re.compile(r"^\s*(?:#+\s*)?\**\s*후속\s*질문\s*\**\s*[:：]?\s*\**\s*$", re.MULTILINE)
+FOLLOWUP_ITEM_RE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+(.+?)\s*$")
+FOLLOWUP_MAX_CHARS = 60  # 슬랙 버튼 글자 수 한도(75)보다 여유 있게
+MAX_FOLLOWUPS = 3
+
+
+def extract_followups(text: str) -> tuple[list[str], str]:
+    """에이전트 출력 끝의 "후속 질문:" 목록을 떼어 낸다. (질문 목록, 목록을 뺀 텍스트)
+
+    목록은 헤더 다음의 연속된 글머리표 줄까지다. 너무 길거나 자리표시자 그대로인 항목은 버린다.
+    """
+    m = None
+    for m in FOLLOWUP_HEADER_RE.finditer(text or ""):
+        pass  # 마지막 헤더를 쓴다
+    if not m:
+        return [], text
+    lines = text[m.end():].splitlines()
+    items, used = [], 0
+    for line in lines:
+        if not line.strip():
+            used += 1
+            if items:
+                break
+            continue
+        im = FOLLOWUP_ITEM_RE.match(line)
+        if not im:
+            break
+        used += 1
+        q = im.group(1).replace("`", "").strip().strip("\"'“”").strip()
+        if 4 <= len(q) <= FOLLOWUP_MAX_CHARS and not q.startswith("<") and q not in items:
+            items.append(q)
+    before, after = text[: m.start()].rstrip(), "\n".join(lines[used:]).strip()
+    return items[:MAX_FOLLOWUPS], (before + "\n\n" + after if after else before).strip()
 
 
 def evidence_notes(text: str) -> dict[tuple[str, int], str]:
@@ -369,20 +405,21 @@ class AnswerService:
 
         # 4) 인용 검증과 확신도
         attachment, attachment_kind, flow, spec = None, None, None, None
-        text = resp.text
+        followups, answer_text = extract_followups(resp.text)  # 버튼으로 보내고 본문·근거에는 남기지 않는다
+        text = answer_text
         if route.name == "wireframe":
             filename = wireframe_filename(question, query_id, prefix="mockup" if comparison else "wireframe")
-            attachment, text, spec = _wireframe_attachment(resp.text, filename)
+            attachment, text, spec = _wireframe_attachment(answer_text, filename)
             attachment_kind = "wireframe" if attachment else None
         else:
-            raw_flow, text = extract_flow(resp.text)  # 명세는 본문에 남기지 않는다
+            raw_flow, text = extract_flow(answer_text)  # 명세는 본문에 남기지 않는다
             if raw_flow is not None:
                 try:
                     flow = parse_flow(raw_flow)
                 except FlowSpecError:
                     flow = None  # 흐름도 없이 답변만 보낸다
         body, evidence = _split_evidence(text)
-        verified, unverified = self._verify(query_id, evidence or resp.text, session, commit)
+        verified, unverified = self._verify(query_id, evidence or answer_text, session, commit)
         if comparison:
             body = _mark_unchecked_dev_paths(body, {c.path for c in verified})
         if flow and resp.error not in LIMIT_ERRORS:
@@ -391,7 +428,7 @@ class AnswerService:
         has_code = any(c.source == "code" for c in verified)
         if resp.error in LIMIT_ERRORS:
             # 한도로 끊기면 마지막 텍스트가 중간 독백("이제 X를 확인하겠습니다")일 수 있어 답변으로 쓰지 않는다
-            confidence, body, verified = "low", LIMIT_TEXT, []
+            confidence, body, verified, followups = "low", LIMIT_TEXT, [], []
         elif route.name == "wireframe" and not attachment:
             confidence = "low"
             body = (body + "\n\n" if body else "") + WIREFRAME_MISSING
@@ -401,6 +438,7 @@ class AnswerService:
         elif resp.error and not body:
             confidence = "low"
             body = "답변을 만들지 못했습니다. 잠시 후 다시 시도하거나 질문 범위를 좁혀 주세요."
+            followups = []
         elif has_code and not unverified:
             confidence = "high"
         elif verified:
@@ -424,5 +462,5 @@ class AnswerService:
                       cost_usd=total_cost, duration_ms=resp.duration_ms, error=resp.error, unverified=unverified,
                       config_dependent=bool(cited_paths & session.config_dependent), tool_calls=len(resp.tool_calls),
                       domain_names=[d.name for d in (self.domain_map.get(i) for i in scope.domains) if d] if self.domain_map else [],
-                      attachment=attachment, attachment_kind=attachment_kind,
+                      attachment=attachment, attachment_kind=attachment_kind, followups=followups,
                       comparison=comparison, vision_cost_usd=vision_cost)

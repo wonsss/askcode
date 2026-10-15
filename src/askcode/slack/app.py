@@ -14,7 +14,7 @@ from slack_bolt.async_app import AsyncApp
 from askcode.llm.complete import LLM
 from askcode.pipeline.answer import AnswerService, evidence_notes
 from askcode.pipeline.screenshot import ALLOWED_TYPES, MAX_BYTES, ScreenCapture, extract_screen
-from askcode.slack.blocks import answer_blocks, evidence_blocks, fallback_text, thinking_blocks
+from askcode.slack.blocks import answer_blocks, evidence_blocks, fallback_text, mark_followup_picked, thinking_blocks
 from askcode.store.db import Store
 
 log = logging.getLogger(__name__)
@@ -29,6 +29,7 @@ def clean_question(text: str) -> str:
         q = q[1:-1].strip()
     return q
 CLARIFY_RE = re.compile(r"^clarify_pick_")
+FOLLOWUP_RE = re.compile(r"^followup_\d+$")
 DEFAULT_SCREEN_QUESTION = "이 화면은 어떤 코드로 구현돼 있고, 주요 버튼은 어떤 조건으로 동작해?"
 
 
@@ -121,6 +122,22 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
     async def _thread(body) -> tuple[str, str]:
         msg = body["message"]
         return body["channel"]["id"], msg.get("thread_ts") or msg["ts"]
+
+    @app.action(FOLLOWUP_RE)
+    async def on_followup(ack, body, client):
+        await ack()
+        action = body["actions"][0]
+        query_id, _, question = action["value"].partition("|")
+        if not question:
+            return
+        user = body["user"]["id"]
+        channel, thread_ts = await _thread(body)
+        store.log_feedback(query_id, user, "followup:" + action["action_id"].removeprefix("followup_"))
+        msg = body["message"]
+        await client.chat_update(channel=channel, ts=msg["ts"], text=msg.get("text") or "답변",
+                                 blocks=mark_followup_picked(msg.get("blocks") or [], question))
+        await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=f"🙋 <@{user}>님의 후속 질문: {question}")
+        await handle_question(client, channel, user, question, thread_ts, [])
 
     @app.action("show_evidence")
     async def on_show_evidence(ack, body, client):

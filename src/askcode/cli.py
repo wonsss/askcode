@@ -88,6 +88,10 @@ def cmd_ask(question: str, domains: str | None, image: str | None = None) -> Non
         print(f"\n{'🧭 흐름도' if flow else '🖼 변경안 (원본 스크린샷과 비교)' if a.comparison else '🖼 와이어프레임'}: {out}")
     elif a.route == "wireframe":
         print("\n⚠️ 와이어프레임 HTML이 없습니다")
+    if a.followups:
+        print("\n이어서 물어보기")
+        for q in a.followups:
+            print(f"  - {q}")
     if a.config_dependent:
         print("\n⚙ 일부 값은 설정·환경값에 따라 달라질 수 있음")
     if a.error:

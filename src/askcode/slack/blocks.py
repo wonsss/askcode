@@ -117,6 +117,7 @@ def answer_blocks(a: Answer, note: str | None = None) -> list[dict]:
         notes.append("처음 정한 범위 밖까지 찾아서 답했어요.")
     if notes:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " ".join(notes)}]})
+    blocks.extend(followup_blocks(a))
     blocks.append({
         "type": "actions",
         "elements": [
@@ -127,6 +128,38 @@ def answer_blocks(a: Answer, note: str | None = None) -> list[dict]:
         ],
     })
     return blocks
+
+
+FOLLOWUP_BLOCK_ID = "followups"
+
+
+def followup_blocks(a: Answer) -> list[dict]:
+    """'이어서 물어보기' 버튼. value에 질문 문장을 담아 클릭 때 DB 조회 없이 바로 묻는다."""
+    if not a.followups:
+        return []
+    return [
+        {"type": "context", "block_id": f"{FOLLOWUP_BLOCK_ID}_label",
+         "elements": [{"type": "mrkdwn", "text": "💬 *이어서 물어보기*"}]},
+        {"type": "actions", "block_id": FOLLOWUP_BLOCK_ID, "elements": [
+            {"type": "button", "text": {"type": "plain_text", "text": q[:75]}, "action_id": f"followup_{i}",
+             "value": f"{a.query_id}|{q}"[:2000]}
+            for i, q in enumerate(a.followups[:3])
+        ]},
+    ]
+
+
+def mark_followup_picked(blocks: list[dict], question: str) -> list[dict]:
+    """누른 뒤에는 버튼 묶음을 '선택함' 안내로 바꿔 같은 답변에서 다시 누르지 않게 한다."""
+    out = []
+    for b in blocks:
+        if b.get("block_id") == f"{FOLLOWUP_BLOCK_ID}_label":
+            continue
+        if b.get("block_id") == FOLLOWUP_BLOCK_ID:
+            out.append({"type": "context", "block_id": f"{FOLLOWUP_BLOCK_ID}_done",
+                        "elements": [{"type": "mrkdwn", "text": f"🙋 이어서 물어봄: {question}"}]})
+            continue
+        out.append(b)
+    return out
 
 
 TOOL_LABEL = {
