@@ -79,6 +79,26 @@ uv run pytest
 | 로그 | `data/logs/{bot,console,backup}.log` |
 
 - 끌 때는 `askcode host off`. 등록을 지우고 잠자기 방지도 풀린다. 상태는 `askcode host status`.
+
+### 메뉴 막대 앱 (AskCode.app)
+
+```bash
+bash scripts/build-macos-app.sh     # 빌드 → ~/Applications/AskCode.app 설치·실행 (Xcode Command Line Tools 필요)
+```
+
+메뉴 막대 아이콘을 누르면 창이 열린다.
+
+| 영역 | 내용 |
+| --- | --- |
+| 머리 | 봇 상태(🟢 실행 중 · 🟠 재시작 대기 · ⚪ 꺼짐), **켜기/끄기**(`host on/off`) |
+| 작업 | 봇 · 웹 콘솔 · 백업(매일 03:30) 각각의 상태 |
+| 숫자 | 오늘 질문, 오늘 비용, 이번 주 비용, 확인 필요(누르면 콘솔 `/check`) |
+| 최근 질문 | 슬랙 질문 5개(경로·확신도·비용·⚠︎), 누르면 콘솔 상세 |
+| 아래 | 마지막 백업·지금 백업, Claude API 키·크레딧 확인(1토큰 호출, 약 $0.00001), 웹 콘솔·로그 열기 |
+
+- 앱은 화면만 맡고 `askcode status --json`(15초마다), `host on/off`, `backup`을 부른다. 상태 조회는 Claude를 부르지 않는다.
+- 봇이 예기치 않게 멈추면 macOS 알림을 띄운다. 메뉴 막대 아이콘 옆 숫자는 확인 필요 건수다.
+- 인증은 API 키뿐이다. 구독 로그인 모드는 두지 않는다(위 정책).
 - 인증은 `.env`의 Claude API 키다. 셸 환경을 물려받지 않아 셸에 남은 `ANTHROPIC_*` 값이 끼어들지 않는다.
 - 맥북이 꺼져 있으면 봇도 멈춘다. 팀이 매일 쓰는 24시간 운영은 VPS([docs/deploy-vultr.md](docs/deploy-vultr.md))가 맞다.
 - Claude Pro·Max 구독 로그인으로 봇을 돌리는 것은 Anthropic 정책상 허용되지 않는다(Agent SDK 제품은 API 키 인증).
