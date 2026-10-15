@@ -66,7 +66,7 @@ class DirRunner:
 
     async def run(self, request):
         tools = {t.name: t for t in request.tools}
-        await tools["list_dir"].handler({"prefix": "apps/api/src"})
+        await tools["list_dir"].handler({"prefix": "apps/api"})  # 목록에 src/ 하위 폴더가 보인다
         text = ("**API 폴더는 하나예요.**\n\n근거:\n"
                 "- apps/api/src/ — 서버 코드 폴더 구성\n"
                 "- `apps/web/lib` — 보지 않은 폴더\n"

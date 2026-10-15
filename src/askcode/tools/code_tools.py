@@ -152,4 +152,5 @@ class CodeTools:
             children[key] = children.get(key, 0) + 1
         lines = [f"{k}  ({v}개 파일)" if k.endswith("/") else k for k, v in sorted(children.items())]
         session.dirs.add(prefix)
+        session.dirs.update(k.rstrip("/") for k in children if k.endswith("/"))  # 목록에 보인 하위 폴더도 본 것
         return f"{prefix or '(루트)'} — {len(children)}개 항목\n" + "\n".join(lines[:150])

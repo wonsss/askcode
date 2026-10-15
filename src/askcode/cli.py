@@ -79,7 +79,8 @@ def cmd_ask(question: str, domains: str | None, image: str | None = None) -> Non
         loc = f"{x.path}/" if x.start == 0 else f"{x.path}:{x.start}-{x.end}"
         print(f"  ✅ [{x.source}] {loc} {x.note}")
     for x in a.unverified:
-        print(f"  ⚠️ {x.path}:{x.start}-{x.end} ({x.reason})")
+        loc = f"{x.path}/" if x.start == 0 else f"{x.path}:{x.start}-{x.end}"
+        print(f"  ⚠️ {loc} ({x.reason})")
     if a.attachment:
         filename, content = a.attachment
         flow = a.attachment_kind == "flow"
