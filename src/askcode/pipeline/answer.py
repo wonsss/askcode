@@ -157,6 +157,10 @@ def extract_followups(text: str) -> tuple[list[str], str]:
     return items[:MAX_FOLLOWUPS], (before + "\n\n" + after if after else before).strip()
 
 
+# 줄 번호 없는 폴더 근거: "- apps/mobile/app/(tabs)/ — 하단 탭 화면". 마지막 조각에 확장자가 있으면 파일이라 제외
+DIR_CITATION_RE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s*`?((?:[\w@\-\[\]()가-힣]+/)+[\w@\-\[\]()가-힣]+)/?`?(?=\s*(?:[—:·-]|$))(.*)$")
+
+
 def evidence_notes(text: str) -> dict[tuple[str, int], str]:
     """저장된 답변의 근거 목록에서 (경로, 시작 줄) → 설명을 뽑는다. '근거 전체 보기'에서 쓴다."""
     _, evidence = _split_evidence(text or "")
@@ -164,6 +168,9 @@ def evidence_notes(text: str) -> dict[tuple[str, int], str]:
     for line in evidence.splitlines():
         for m in CITATION_RE.finditer(line):
             notes.setdefault((m.group(1), int(m.group(2))), line[m.end():].strip(" -—:·"))
+        dm = None if CITATION_RE.search(line) else DIR_CITATION_RE.match(line)
+        if dm:
+            notes.setdefault((dm.group(1), 0), dm.group(2).strip(" -—:·"))
     return notes
 
 
@@ -295,6 +302,16 @@ class AnswerService:
                 c = Citation(source, path, start, end, note, verified, reason, url)
                 (ok if verified else bad).append(c)
                 self.store.log_citation(query_id, source, path, start, end, verified, reason)
+            dm = None if CITATION_RE.search(line) else DIR_CITATION_RE.match(line)
+            if dm and (dm.group(1), 0, 0) not in seen:
+                # 폴더 근거는 줄 번호 0으로 기록한다. list_dir로 실제 본 폴더만 인정한다
+                path, note = dm.group(1), dm.group(2).strip(" -—:·")
+                seen.add((path, 0, 0))
+                verified = path in session.dirs
+                reason = "ok" if verified else "도구로 확인하지 않은 폴더"
+                c = Citation("code", path, 0, 0, note, verified, reason, f"{self.repo.web_base}/tree/{commit}/{path}")
+                (ok if verified else bad).append(c)
+                self.store.log_citation(query_id, "code", path, 0, 0, verified, reason)
         return ok, bad
 
     def _ref_ok(self, ref: str, session: ToolSession) -> bool:

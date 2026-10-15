@@ -154,7 +154,8 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
         for r in rows:
             doc = store.doc_file(r["path"]) if r["source"] in ("notion", "slack") else None
             sha = commit["commit_sha"] if commit else "main"
-            url = doc["url"] if doc else f"{base}/blob/{sha}/{r['path']}#L{r['start_line']}"
+            url = (doc["url"] if doc else f"{base}/tree/{sha}/{r['path']}" if not r["start_line"]
+                   else f"{base}/blob/{sha}/{r['path']}#L{r['start_line']}")
             cites.append({"source": r["source"], "path": r["path"], "start": r["start_line"], "end": r["end_line"],
                           "verified": bool(r["verified"]), "reason": r["reason"], "url": url,
                           "note": notes.get((r["path"], r["start_line"]), "")})

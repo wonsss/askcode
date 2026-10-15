@@ -33,6 +33,8 @@ class ToolSession:
     """스코핑이 정한 허용 경로. None이면 레포 전체."""
     widened: bool = False
     config_dependent: set[str] = field(default_factory=set)
+    dirs: set[str] = field(default_factory=set)
+    """list_dir로 실제 본 폴더(앞뒤 / 없이). 폴더 경로 근거 검증에 쓴다."""
 
     def in_scope(self, path: str) -> bool:
         return self.widened or self.scope_globs is None or matches(path, self.scope_globs)
@@ -149,4 +151,5 @@ class CodeTools:
             key = "/".join(parts[: depth + 1]) + ("/" if len(parts) > depth + 1 else "")
             children[key] = children.get(key, 0) + 1
         lines = [f"{k}  ({v}개 파일)" if k.endswith("/") else k for k, v in sorted(children.items())]
+        session.dirs.add(prefix)
         return f"{prefix or '(루트)'} — {len(children)}개 항목\n" + "\n".join(lines[:150])

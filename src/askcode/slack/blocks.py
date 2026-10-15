@@ -48,10 +48,17 @@ def short_path(path: str) -> str:
 
 
 def citation_line(c: Citation) -> str:
-    loc = f"{short_path(c.path)}:{c.start}" + (f"-{c.end}" if c.end != c.start else "")
+    loc = _loc(c.path, c.start, c.end)
     link = f"<{c.url}|{loc}>" if c.url else loc
     note = c.note.replace("`", "").strip(" —-")
-    return f"• {SOURCE_LABEL.get(c.source, '')} {link}" + (f"  {note}" if note else "")
+    label = "폴더" if c.start == 0 else SOURCE_LABEL.get(c.source, "")
+    return f"• {label} {link}" + (f"  {note}" if note else "")
+
+
+def _loc(path: str, start: int, end: int) -> str:
+    if start == 0:
+        return short_path(path) + "/"  # 줄 번호 없는 폴더 근거
+    return f"{short_path(path)}:{start}" + (f"-{end}" if end != start else "")
 
 
 def thinking_blocks(text: str = "⏳ 코드를 확인하고 있어요…") -> list[dict]:
@@ -197,7 +204,7 @@ def evidence_blocks(citations: list[dict], steps: list[tuple[str, dict]], result
     bad = [c for c in citations if not c["verified"]]
 
     def line(c: dict) -> str:
-        loc = f"{short_path(c['path'])}:{c['start']}" + (f"-{c['end']}" if c["end"] != c["start"] else "")
+        loc = _loc(c["path"], c["start"], c["end"])
         link = f"<{c['url']}|{loc}>" if c.get("url") else loc
         note = (c.get("note") or "").replace("`", "")
         tail = f"  {note}" if c["verified"] else f"  _제외: {c['reason']}_"

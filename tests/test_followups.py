@@ -59,3 +59,29 @@ async def test_pipeline_moves_followups_to_buttons(store, tools, repo_cfg, repo_
 async def test_limit_stop_drops_followups(store, tools, repo_cfg, repo_dir):
     a = await AnswerService(store, repo_cfg, repo_dir, Runner(error="error_max_budget_usd"), tools).answer("q")
     assert a.followups == [] and not any(b.get("block_id") == "followups" for b in answer_blocks(a))
+
+
+class DirRunner:
+    """list_dir로 폴더를 본 뒤, 본 폴더와 보지 않은 폴더를 함께 근거로 든다."""
+
+    async def run(self, request):
+        tools = {t.name: t for t in request.tools}
+        await tools["list_dir"].handler({"prefix": "apps/api/src"})
+        text = ("**API 폴더는 하나예요.**\n\n근거:\n"
+                "- apps/api/src/ — 서버 코드 폴더 구성\n"
+                "- `apps/web/lib` — 보지 않은 폴더\n"
+                "- apps/api/src/bills/bills.controller.ts — 줄 번호 없는 파일은 폴더가 아님\n")
+        return AgentResponse(text=text, model="fake")
+
+
+async def test_directory_citations_verified_by_list_dir(store, tools, repo_cfg, repo_dir):
+    from askcode.pipeline.answer import evidence_notes
+    from askcode.slack.blocks import citation_line
+
+    a = await AnswerService(store, repo_cfg, repo_dir, DirRunner(), tools).answer("API 폴더 구성은?")
+    assert [(c.path, c.start) for c in a.citations] == [("apps/api/src", 0)]
+    assert [(c.path, c.reason) for c in a.unverified] == [("apps/web/lib", "도구로 확인하지 않은 폴더")]
+    assert a.citations[0].url.endswith("/tree/" + a.commit + "/apps/api/src")
+    line = citation_line(a.citations[0])
+    assert line.startswith("• 폴더 <") and "|api/src/>" in line and "서버 코드 폴더 구성" in line
+    assert evidence_notes("답\n\n근거:\n- apps/api/src/ — 서버 코드 폴더 구성") == {("apps/api/src", 0): "서버 코드 폴더 구성"}

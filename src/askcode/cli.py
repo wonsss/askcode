@@ -76,7 +76,8 @@ def cmd_ask(question: str, domains: str | None, image: str | None = None) -> Non
     print(a.body)
     print("\n근거")
     for x in a.citations:
-        print(f"  ✅ [{x.source}] {x.path}:{x.start}-{x.end} {x.note}")
+        loc = f"{x.path}/" if x.start == 0 else f"{x.path}:{x.start}-{x.end}"
+        print(f"  ✅ [{x.source}] {loc} {x.note}")
     for x in a.unverified:
         print(f"  ⚠️ {x.path}:{x.start}-{x.end} ({x.reason})")
     if a.attachment:
