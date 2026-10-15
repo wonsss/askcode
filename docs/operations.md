@@ -99,10 +99,43 @@ uv run askcode redact <query_id> --reason "질문에 실명·연락처 포함"
 
 ## 스키마 변경
 
-- DB에는 스키마 버전(`PRAGMA user_version`)이 있다. 현재 v2(v1 기준 테이블 + v2 가림 기록).
+- DB에는 스키마 버전(`PRAGMA user_version`)이 있다. 현재 v3(v1 기준 테이블 + v2 가림 기록 + v3 `query_results.provider` 컬럼 — 답변에 쓰인 인증 경로 api|subscription).
 - 테이블을 바꿀 때는 `src/askcode/store/db.py`의 `MIGRATIONS`에 번호를 붙여 **추가만** 한다. 이미 배포한 항목은 고치지 않는다.
 - 봇·콘솔·명령이 시작할 때 자기 버전보다 큰 마이그레이션만 순서대로 적용한다.
 - 바꾸기 전에 `askcode backup`을 먼저 한다.
+
+## 다른 맥으로 이전
+
+봇의 몸통은 레포+`.env`+DB+launchd이고, 메뉴바 앱은 조종판이라 따로 옮기지 않는다. 새 맥에서는 이렇게 세팅한다.
+
+1. **준비물을 옮긴다** — 클라우드 동기화가 아니라 `scp`/AirDrop 등으로 직접 보낸다(비밀값 포함).
+   - 레포 클론(`git clone`), `uv`(brew)
+   - `.env` 전체, `secrets/github-app.pem`
+   - `data/askcode.sqlite3`(답변 이력을 살릴 때만 — 안 옮기면 `askcode sync`로 새로 시작)
+   - 터널: `~/.cloudflared/<tunnel-id>.json` + `config.yml` (로그인 없이 자격증명 파일만 있으면 `tunnel run`이 동작한다. 양쪽 맥에서 동시에 띄워도 되고, 되면 Cloudflare가 커넥터 둘에 분산한다)
+2. **새 맥에서**
+   ```bash
+   uv sync && uv run askcode doctor --online
+   uv run askcode sync                    # DB를 안 옮겼을 때
+   uv run askcode host on                 # 봇·콘솔·백업 launchd 등록
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.askcode.tunnel.plist   # plist도 함께 옮겼다면
+   bash scripts/build-macos-app.sh        # 이 맥 경로가 박힌 앱으로 새로 빌드·설치
+   ```
+3. **구독 모드를 쓸 거면** 새 맥에서 `claude auth login`으로 로그인해야 한다(OAuth 자격증명은 맥 로컬 키체인에 있다). API 모드는 `.env`만 옮기면 끝.
+4. **주의: 봇은 한 대에서만 켠다.** `serve.lock`은 각 맥의 로컬 파일이라 두 맥이 동시에 봇을 띄우면 슬랙이 이벤트를 양쪽에 나눠 줘 답이 엇갈리고 감사 로그가 갈라진다. 옮긴 뒤 예전 맥은 `askcode host off`로 끈다.
+
+## 웹 콘솔 외부 공개 (Cloudflare Tunnel + Access)
+
+콘솔은 여전히 `127.0.0.1:8787`에만 바인딩하고, 맥북의 `cloudflared`가 나가는 연결로 Cloudflare에 붙는다. Cloudflare Access가 터널 앞에서 이메일 인증을 거므로 허용된 사람만 열린다.
+
+| 항목 | 값 |
+| --- | --- |
+| 공개 주소 | `https://askcode.lawwatch.kr` |
+| 터널 | `askcode-console` (`8b8db7fe-…`, 설정 `~/.cloudflared/config.yml`, 자격증명 `~/.cloudflared/*.json`) |
+| 상시 실행 | launchd `com.askcode.tunnel` (`~/Library/LaunchAgents/`), 로그 `data/logs/tunnel.log` |
+| 인증 | Zero Trust → Access controls → Applications의 `AskCode 콘솔` 앱, Allow 정책(이메일 목록) |
+| 팀원 추가 | 그 정책의 Emails에 주소를 추가하면 됨(코드 변경 없음) |
+| 끄기 | `launchctl bootout gui/$(id -u)/com.askcode.tunnel` + plist 삭제. 완전 철거는 `cloudflared tunnel delete askcode-console` + Access 앱 삭제 |
 
 ## 언제 SQLite를 벗어나나
 

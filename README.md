@@ -18,7 +18,7 @@
 | 후속 질문 | — | 답변 아래 💬 이어서 물어보기 버튼 2~3개 |
 | 웹 콘솔 | — | 지난 답 검색, 최신성 배지(근거 코드가 그 뒤로 바뀌었는지), 운영 점검, 평가 이력 |
 
-답변 아래 버튼: 근거 전체 보기 · 👍 · 👎 · 개발자에게 확인 요청(지정 채널에 올림).
+답변 아래 버튼: 근거 전체 보기 · 👍 · 👎 · 개발자에게 확인 요청(지정 채널에 올림). 답 메타 줄에는 어느 인증 경로로 답했는지(API 키 · 구독)도 표시합니다.
 
 ## 구조
 
@@ -47,8 +47,10 @@ cp .env.example .env                 # 값 채우기
 uv run askcode doctor --online       # 환경·키·크레딧·노션·DB·백업 점검
 uv run askcode sync                  # 레포 클론 + 인덱싱 + 노션·슬랙 수집 (Claude 비용 없음)
 uv run askcode serve                 # 슬랙 봇
-uv run askcode console               # 웹 콘솔 http://127.0.0.1:8787 (로컬 전용, 읽기 전용, 비용 없음)
+uv run askcode console               # 웹 콘솔 http://127.0.0.1:8787 (읽기 전용, 비용 없음)
+                                     # 팀 공개: https://askcode.lawwatch.kr (Cloudflare Tunnel + Access 이메일 인증, docs/operations.md)
 uv run askcode host on|off|status    # 맥북 호스트 모드: 봇·콘솔 상시 실행, 잠자기 방지, 매일 백업
+uv run askcode provider [api|subscription]   # 인증 경로 확인·전환 (subscription=로컬 claude CLI 구독)
 
 uv run askcode ask "앱에서 의안 상세 화면은 네이티브야 웹뷰야?"
 uv run askcode ask "알림 로직 알려줘" --domains follows-push
@@ -63,7 +65,7 @@ uv run askcode redact <query_id> --reason "…"   # 개인정보 유입 시 텍�
 uv run pytest
 ```
 
-`ask`·`eval`·`serve`만 Claude API 비용이 듭니다. 경로별 비용은 [docs/cost.md](docs/cost.md)에 있습니다.
+`ask`·`eval`·`serve`만 Claude 비용이 듭니다 — `api` 모드는 API 크레딧, `subscription` 모드는 로컬 구독 한도(표시되는 $ 값은 토큰×공식 단가 환산 추정치로 실제 과금 없음). 경로별 비용은 [docs/cost.md](docs/cost.md)에 있습니다.
 
 ## 맥북 호스트 모드 (데모·소규모)
 
@@ -90,18 +92,18 @@ bash scripts/build-macos-app.sh     # 빌드 → ~/Applications/AskCode.app 설�
 
 | 영역 | 내용 |
 | --- | --- |
-| 머리 | 봇 상태(🟢 실행 중 · 🟠 재시작 대기 · ⚪ 꺼짐), **켜기/끄기**(`host on/off`) |
+| 머리 | 봇 상태(🟢 실행 중 · 🟠 재시작 대기 · ⚪ 꺼짐) + 현재 인증 경로(구독·API), **켜기/끄기**(`host on/off`) |
 | 작업 | 봇 · 웹 콘솔 · 백업(매일 03:30) 각각의 상태 |
 | 숫자 | 오늘 질문, 오늘 비용, 이번 주 비용, 확인 필요(누르면 콘솔 `/check`) |
-| 최근 질문 | 슬랙 질문 5개(경로·확신도·비용·⚠︎), 누르면 콘솔 상세 |
-| 아래 | 마지막 백업·지금 백업, Claude API 키·크레딧 확인(1토큰 호출, 약 $0.00001), 웹 콘솔·로그 열기 |
+| 최근 질문 | 슬랙 질문 5개(경로·프로바이더·확신도·비용·⚠︎), 누르면 콘솔 상세 |
+| 아래 | 마지막 백업·지금 백업, 인증 경로 토글(API \| 구독)·확인 버튼, 웹 콘솔·로그 열기 |
 
-- 앱은 화면만 맡고 `askcode status --json`(15초마다), `host on/off`, `backup`을 부른다. 상태 조회는 Claude를 부르지 않는다.
+- 앱은 화면만 맡고 `askcode status --json`(15초마다), `host on/off`, `provider`, `backup`을 부른다. 상태 조회는 Claude를 부르지 않는다.
 - 봇이 예기치 않게 멈추면 macOS 알림을 띄운다. 메뉴 막대 아이콘 옆 숫자는 확인 필요 건수다.
-- 인증은 API 키뿐이다. 구독 로그인 모드는 두지 않는다(위 정책).
-- 인증은 `.env`의 Claude API 키다. 셸 환경을 물려받지 않아 셸에 남은 `ANTHROPIC_*` 값이 끼어들지 않는다.
+- 인증 경로는 `.env`의 `ASKCODE_LLM_PROVIDER`가 정한다. `api`(기본)는 `ANTHROPIC_API_KEY`로 직접 호출하고, `subscription`은 로컬 `claude` CLI의 구독 로그인을 하위 프로세스로 띄워 쓴다(SlackBotManager 방식). 메뉴 막대의 API|구독 토글 또는 `askcode provider api|subscription`으로 바꾸며, 봇이 켜져 있으면 봇만 재시작해 바로 적용된다. 실제로 답에 쓰인 경로는 답변마다 `query_results.provider`에 기록돼 슬랙 메타 줄·콘솔 칩·앱 최근 질문에 표시된다(이전 답변은 비어 있음).
+- 인증은 `.env`의 Claude API 키다. 셸 환경을 물려받지 않아 셸에 남은 `ANTHROPIC_*` 값이 끼어들지 않는다(구독 모드에서는 하위 `claude` 프로세스에 이 변수들을 빈 값으로 덮어써 구독 로그인이 선택되게 한다).
 - 맥북이 꺼져 있으면 봇도 멈춘다. 팀이 매일 쓰는 24시간 운영은 VPS([docs/deploy-vultr.md](docs/deploy-vultr.md))가 맞다.
-- Claude Pro·Max 구독 로그인으로 봇을 돌리는 것은 Anthropic 정책상 허용되지 않는다(Agent SDK 제품은 API 키 인증).
+- Claude Pro·Max 구독 로그인으로 타인에게 봇을 서비스하는 것은 Anthropic 정책상 허용되지 않는다 — `subscription` 모드는 이 맥북에서의 로컬 PoC·데모 전용이다.
 
 ## 문서
 
@@ -151,9 +153,10 @@ API 토큰 연결은 만든 워크스페이스의 페이지만 읽는다. 페이
 | `config/domains.yaml` | 기획자 관점 도메인 13개와 도메인별 허용 경로 |
 | `config/glossary.yaml` | 기획 용어 → 코드 식별자 힌트 |
 | `eval/golden.yaml` | 골든 세트 28문항 (정답·근거·기대 행동) |
+| `ASKCODE_LLM_PROVIDER` | `api`(기본, `ANTHROPIC_API_KEY`) \| `subscription`(로컬 `claude` CLI 구독 로그인) |
 | `ASKCODE_MODEL_LARGE` / `_SMALL` | 기본 `claude-sonnet-5-5` / `claude-haiku-5-5` |
 | `ASKCODE_AGENT_EFFORT_LARGE` / `_SMALL` | 비우면 모델 기본값 |
-| `ASKCODE_AGENT_MAX_BUDGET_USD` | 질문 하나의 비용 상한 (기본 0.5) |
+| `ASKCODE_AGENT_MAX_BUDGET_USD` | 질문 하나의 비용 상한 (기본 0.5). 구독 모드에서는 미적용 — `ASKCODE_AGENT_MAX_TURNS`만 제한 |
 | `ASKCODE_BACKUP_DIR` · `_KEEP_DAYS` · `_UPLOAD_CMD` | 백업 위치, 로컬 보관 일수, 서버 밖 복사 명령(`{file}`) |
 
 ## 데이터와 보존
