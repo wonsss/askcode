@@ -108,10 +108,19 @@ def online_checks(s: Settings) -> list[Check]:
         try:
             from anthropic import Anthropic
 
-            models = {m.id for m in Anthropic(api_key=s.anthropic_api_key.get_secret_value()).models.list(limit=100).data}
+            client = Anthropic(api_key=s.anthropic_api_key.get_secret_value())
+            models = {m.id for m in client.models.list(limit=100).data}
             missing = [m for m in (s.model_small, s.model_large) if m not in models]
             checks.append(Check(WARN if missing else OK, "Claude API",
                                 f"연결됨 · 모델 확인 필요: {', '.join(missing)}" if missing else "연결됨 · 설정 모델 사용 가능"))
+            # 모델 목록 조회는 크레딧이 없어도 성공하므로 실제 호출을 1토큰만 해 본다.
+            try:
+                client.messages.create(model=s.model_small, max_tokens=1, messages=[{"role": "user", "content": "ping"}])
+                checks.append(Check(OK, "Claude 호출", f"{s.model_small} 응답"))
+            except Exception as exc:
+                low = "credit balance" in str(exc).lower()
+                checks.append(Check(FAIL, "Claude 호출", "크레딧 잔액 부족 — Plans & Billing에서 충전" if low
+                                    else f"{type(exc).__name__}: {str(exc)[:120]}"))
         except Exception as exc:
             checks.append(Check(FAIL, "Claude API", f"{type(exc).__name__}: {str(exc)[:120]}"))
     if s.slack_bot_token:
