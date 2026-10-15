@@ -6,6 +6,7 @@
 - 배포: [docs/deploy-vultr.md](docs/deploy-vultr.md)
 - 데모 시나리오: [docs/demo-scenario.md](docs/demo-scenario.md)
 - 비용 모델과 실측: [docs/cost.md](docs/cost.md)
+- 와이어프레임 생성: [docs/wireframe.md](docs/wireframe.md)
 - 데모 대상: [wonsss/law-watch](https://github.com/wonsss/law-watch) (main)
 
 ## 구조

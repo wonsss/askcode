@@ -9,6 +9,7 @@ AskCode: 기획자가 슬랙에서 질문하면 비공개 코드베이스(law-wa
 - `docs/demo-scenario.md` — 7분 데모 순서, 노션 문서의 의도적 불일치 3곳
 - `docs/deploy-vultr.md` — 배포
 - `docs/cost.md` — 경로별 비용 실측, 월 비용 추정, 모델·effort 판단
+- `docs/wireframe.md` — 와이어프레임 생성 동작·보안·비용
 
 ## 명령
 
@@ -49,6 +50,6 @@ uv run pytest                    # 50개
 - `.env` 입력 완료: Claude 키, 슬랙 봇·앱 토큰, GitHub App(ID·설치 ID·`secrets/github-app.pem`). GitHub App으로 law-watch 클론·인덱싱 확인됨(`data/`, main@31bcf1e). 확인 요청 채널(`ASKCODE_ESCALATION_CHANNEL`)도 설정됨.
 - 노션 데모 문서: 「AskCode 데모 — law-watch 기획 문서」(page id `594f6bc1093b83fb9cfe8154b27d9d2e`, 장원석님의 워크스페이스 › LawWatch)와 하위 8개 페이지. 봇 전용 연결 `AskCode`(API 토큰, 콘텐츠 읽기만)로 수집됨. 원래 문서(`3fa5aab5…`)는 다른 워크스페이스에 있어 옮겼고, 그때 페이지 ID가 바뀌었다.
 - 모델: `claude-sonnet-5-5`(심층 탐색·판정), `claude-haiku-5-5`(스코핑·빠른 답). 소형 모델 호출은 thinking을 끈다(켜면 스코핑 JSON이 잘림). effort는 `ASKCODE_AGENT_EFFORT_LARGE/SMALL`로 바꿀 수 있고 비우면 모델 기본값.
-- 와이어프레임 생성 구현(저충실도 HTML, 슬랙 파일 업로드). 슬랙 앱에 `files:write`를 추가하고 재설치해야 업로드된다.
+- 와이어프레임 생성 구현(저충실도 HTML, 슬랙 파일 업로드). `files:write` 추가·재설치 완료, 슬랙에서 확인됨($0.093·42초). 상세는 `docs/wireframe.md`.
 - 남은 실패: q11(스코핑이 가끔 되묻기로 분류), q14(웹 기본 페이지 크기 6건 누락).
 - 에이전트 SDK 하위 프로세스는 부모 환경변수를 물려받는다.
