@@ -1,0 +1,89 @@
+# 도메인 맵 — 기획자 관점의 기능 단위. 스코핑이 질문을 여기 도메인으로 좁힌다.
+# paths: 이 도메인 질문일 때 검색·읽기를 허용할 경로(하드 필터). shared는 모든 도메인에 함께 열린다.
+shared:
+  - "packages/contracts/**"
+  - "packages/api-client/**"
+  - "CLAUDE.md"
+  - "AGENTS.md"
+  - "PRODUCT.md"
+  - "ARCHITECTURE.md"
+
+domains:
+  - id: bills
+    name: 의안(법안)
+    summary: 의안 목록·상세·검색 필터, 진행 단계, 원문 PDF·비교, 표결 연결
+    terms: [의안, 법안, 발의, 계류, 가결, 부결, 본회의, 원문, 비교]
+    paths: ["apps/api/src/bills/**", "apps/api/src/legislation/**", "apps/web/app/(public)/bills/**", "apps/web/app/embed/bills/**",
+            "apps/web/components/bills/**", "apps/mobile/app/bills/**", "apps/mobile/src/features/bills/**", "docs/**/*bill*"]
+  - id: bill-ai
+    name: 의안 AI 요약·분석
+    summary: 의안 AI 요약, 시민 설명, 분류, 근거 표시 규칙
+    terms: [AI 요약, 요약, 쉬운 설명, 분류, 근거, 생성]
+    paths: ["apps/api/src/bills/**", "apps/worker/src/issues/**", "apps/web/components/ai/**", "docs/**/*ai*", "specs/**"]
+  - id: people
+    name: 의원(인물)
+    summary: 의원 목록·상세, 역할 이력, 입법·표결 활동
+    terms: [의원, 국회의원, 인물, 역할, 표결, 대표발의]
+    paths: ["apps/api/src/people/**", "apps/web/app/(public)/people/**", "apps/web/app/embed/people/**", "apps/web/components/people/**",
+            "apps/mobile/app/people/**", "apps/mobile/src/features/people/**"]
+  - id: committees-parties-districts
+    name: 위원회·정당·지역구
+    summary: 위원회·정당·지역구 목록과 상세, 대수별 화면
+    terms: [위원회, 정당, 지역구, 선거구, 대수]
+    paths: ["apps/api/src/committees/**", "apps/api/src/parties/**", "apps/api/src/districts/**", "apps/api/src/assembly-terms/**",
+            "apps/web/components/committees/**", "apps/web/components/parties/**", "apps/web/components/districts/**",
+            "apps/mobile/app/committees/**", "apps/mobile/app/parties/**", "apps/mobile/app/districts/**", "apps/mobile/app/terms/**",
+            "apps/mobile/src/features/committees/**", "apps/mobile/src/features/parties/**", "apps/mobile/src/features/districts/**"]
+  - id: government-legislation
+    name: 정부입법·입법예고·지방의회
+    summary: 정부 입법예고·법률안, 지방의회 자료
+    terms: [정부입법, 입법예고, 지방의회, 조례]
+    paths: ["apps/api/src/government-legislation/**", "apps/mobile/app/legislation/**", "apps/mobile/src/features/government-notices/**",
+            "apps/web/components/legislation/**", "docs/**/*local-council*", "docs/**/*government*"]
+  - id: search-explore
+    name: 검색·탐색·홈 피드
+    summary: 통합 검색, 탐색 탭, 관심사 피드, 홈 구성
+    terms: [검색, 탐색, 피드, 홈, 추천, 관심 키워드]
+    paths: ["apps/api/src/search/**", "apps/api/src/explore/**", "apps/api/src/home/**", "apps/api/src/recommendations/**",
+            "apps/web/components/search/**", "apps/web/components/explore/**", "apps/web/components/home/**",
+            "apps/mobile/app/(tabs)/**", "apps/mobile/src/features/explore/**", "apps/mobile/src/features/home/**"]
+  - id: follows-push
+    name: 팔로우·내 소식·푸시 알림
+    summary: 팔로우(즐겨찾기), 내 소식 피드, 대상별 알림 설정, 푸시 발송 정책·주기
+    terms: [팔로우, 즐겨찾기, 내 소식, 알림, 푸시, 구독, 읽음]
+    paths: ["apps/api/src/favorites/**", "apps/api/src/subscriptions/**", "apps/api/src/devices/**", "apps/api/src/changes/**",
+            "apps/api/src/watches/**", "apps/worker/src/notifications/**", "apps/worker/src/changes/**", "apps/web/components/follows/**",
+            "apps/mobile/app/following/**", "apps/mobile/app/updates/**", "apps/mobile/app/notifications/**", "apps/mobile/app/favorites/**",
+            "apps/mobile/src/auth/**", "apps/mobile/src/features/follows/**", "docs/**/*push*", "docs/**/*my-news*"]
+  - id: mobile-hybrid
+    name: 모바일 앱 구조(네이티브·웹뷰)
+    summary: 앱 탭·화면 구성, 네이티브/웹뷰 구분, 웹뷰 브리지, 딥링크, 로딩·캐시
+    terms: [앱, 웹뷰, 네이티브, 탭, 화면, 딥링크, 임베드]
+    paths: ["apps/mobile/**", "apps/web/app/embed/**", "apps/web/lib/webview-bridge.ts", "apps/web/lib/**", "docs/**/*mobile*",
+            "docs/**/*webview*", "docs/guides/**"]
+  - id: auth-account
+    name: 로그인·계정
+    summary: 회원가입·로그인 방식, 소셜 로그인, 계정 관리·탈퇴
+    terms: [로그인, 회원가입, 계정, 탈퇴, 소셜, 비밀번호]
+    paths: ["apps/api/src/auth/**", "apps/api/src/users/**", "apps/web/components/auth/**", "apps/web/components/account/**",
+            "apps/mobile/app/account/**", "apps/mobile/app/reset-password.tsx", "docs/**/*auth*"]
+  - id: ingestion
+    name: 데이터 수집
+    summary: 공공 API 수집 주기·재시도, 원문 보관, 데이터 상태
+    terms: [수집, 동기화, 원문, 출처, 데이터 상태, 주기, 재시도]
+    paths: ["apps/worker/**", "apps/api/src/ingestion/**", "packages/database/**", "docs/decisions/**"]
+  - id: ai-exploration
+    name: AI 탐색(질문하기)
+    summary: AI 질문·탐색 기능, 근거 검색, 쿼터
+    terms: [AI 탐색, 질문하기, 챗, 쿼터]
+    paths: ["apps/api/src/ai-exploration/**", "apps/web/components/ai/**", "docs/plans/ai-exploration*"]
+  - id: admin-ops
+    name: 관리자·운영
+    summary: 관리자 화면, 신고 처리, 수집 현황, 배포·운영
+    terms: [관리자, 신고, 운영, 배포, 모니터링]
+    paths: ["apps/api/src/admin/**", "apps/api/src/reports/**", "apps/web/app/admin/**", "apps/web/components/admin/**", "apps/studio/**", "ops/**"]
+  - id: architecture-decisions
+    name: 설계 결정·배경
+    summary: 기술 스택·아키텍처 결정과 그 이유, 미채택안
+    terms: [왜, 결정, 배경, 이유, 미채택, 아키텍처]
+    paths: ["docs/**", "ARCHITECTURE.md", "PRODUCT.md"]

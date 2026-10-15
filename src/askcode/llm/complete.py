@@ -45,6 +45,27 @@ class LLM:
             system=system,
             messages=[{"role": "user", "content": prompt}],
         )
+        return self._completion(msg, model)
+
+    async def vision(self, prompt: str, image: bytes, media_type: str, tier: Tier = "small",
+                     max_tokens: int = 800) -> Completion:
+        """스크린샷에서 화면 문구를 읽을 때 쓴다."""
+        import base64
+
+        model = self._models[tier]
+        msg = await self._client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": media_type,
+                                             "data": base64.b64encode(image).decode()}},
+                {"type": "text", "text": prompt},
+            ]}],
+        )
+        return self._completion(msg, model)
+
+    @staticmethod
+    def _completion(msg, model: str) -> Completion:
         text = "".join(b.text for b in msg.content if b.type == "text")
         u = msg.usage
         return Completion(

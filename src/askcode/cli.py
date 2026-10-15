@@ -1,51 +1,83 @@
 """AskCode CLI.
 
-  askcode sync            레포 동기화 + 인덱싱
-  askcode ask "질문"       슬랙 없이 파이프라인 실행
-  askcode serve           슬랙 봇 실행 (주기적 동기화 포함)
-  askcode stats           감사 로그 요약
+  askcode sync [--force] [--no-external]   레포 동기화 + 코드·구조·문서 인덱싱 + 노션·슬랙 수집
+  askcode ask "질문"                        슬랙 없이 파이프라인 실행
+  askcode eval [--ids q01,q02] [--limit N]  골든 세트 평가 → eval/results/
+  askcode serve                            슬랙 봇 실행 (주기적 동기화 포함)
+  askcode stats                            감사 로그 요약
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import sys
+from pathlib import Path
 
 from askcode.app import build_container
 
 SYNC_INTERVAL_SEC = 600
 
 
-def cmd_sync() -> None:
+def cmd_sync(force: bool, external: bool) -> None:
     c = build_container()
-    result, stats = c.refresh()
-    print(f"{result.repo} @ {result.commit_sha[:7]} (이전 {result.previous_sha[:7] if result.previous_sha else '-'})")
-    if result.changed_files:
-        print(f"변경 파일 {len(result.changed_files)}개")
-    if stats:
-        print(f"추적 {stats.tracked} · 인덱싱 {stats.indexed} · 제외 {stats.excluded} · 바이너리/대용량 {stats.binary_or_large}")
-    else:
-        print("변경 없음")
+    r = c.refresh(external=external, force=force)
+    print(f"{c.repo.name} @ {r.commit[:7]} (이전 {r.previous[:7] if r.previous else '-'}) · 변경 파일 {r.changed_files}개 · "
+          f"{'재인덱싱' if r.reindexed else '변경 없음'}")
+    if r.stats:
+        print(json.dumps(r.stats, ensure_ascii=False, indent=2))
 
 
-def cmd_ask(question: str) -> None:
+def _ensure_index(c) -> None:
+    if c.store.file_count(c.repo.name) == 0:
+        c.refresh()
+
+
+def cmd_ask(question: str, domains: str | None) -> None:
     from askcode.slack.blocks import CONFIDENCE_LABEL
 
     c = build_container()
-    if c.store.file_count(c.repo.name) == 0:
-        c.refresh()
-    a = asyncio.run(c.service.answer(question, source="cli"))
-    print(f"[{CONFIDENCE_LABEL[a.confidence]}] main@{a.commit[:7]}  ${a.cost_usd:.4f}  {a.duration_ms / 1000:.1f}s\n")
+    _ensure_index(c)
+    forced = None if domains is None else [d for d in domains.split(",") if d]
+    a = asyncio.run(c.service.answer(question, source="cli", forced_domains=forced))
+    if a.status != "answer":
+        print(f"[{a.status}] {a.body}")
+        for did, name in a.options:
+            print(f"  - {did}: {name}   (askcode ask \"{question}\" --domains {did})")
+        print(f"\n비용 ${a.cost_usd:.4f}")
+        return
+    scope = ",".join(a.scope.domains) if a.scope and a.scope.domains else "전체"
+    print(f"[{CONFIDENCE_LABEL[a.confidence]}] main@{a.commit[:7]} · 범위 {scope} · 경로 {a.route} · "
+          f"${a.cost_usd:.4f} · {a.duration_ms / 1000:.1f}s · 도구 {a.tool_calls}회\n")
     print(a.body)
     print("\n근거")
     for x in a.citations:
-        print(f"  ✅ {x.path}:{x.start}-{x.end} {x.note}")
+        print(f"  ✅ [{x.source}] {x.path}:{x.start}-{x.end} {x.note}")
     for x in a.unverified:
         print(f"  ⚠️ {x.path}:{x.start}-{x.end} ({x.reason})")
+    if a.config_dependent:
+        print("\n⚙ 일부 값은 설정·환경값에 따라 달라질 수 있음")
     if a.error:
         print(f"\n오류: {a.error}", file=sys.stderr)
+
+
+def cmd_eval(ids: str | None, limit: int | None, concurrency: int) -> None:
+    from askcode.evaluation import load_golden, run_eval
+
+    c = build_container()
+    _ensure_index(c)
+    golden = load_golden(Path("eval/golden.yaml"))
+    if ids:
+        wanted = set(ids.split(","))
+        golden = [g for g in golden if g["id"] in wanted]
+    if limit:
+        golden = golden[:limit]
+    commit = c.store.get_repo_commit(c.repo.name) or "unknown"
+    _, summary, md = asyncio.run(run_eval(c.service, c.llm, golden, Path("eval/results"), commit, concurrency))
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    print(f"\n결과표: {md}")
 
 
 def cmd_serve() -> None:
@@ -66,7 +98,7 @@ def cmd_serve() -> None:
                 logging.exception("periodic sync failed")
 
     async def main() -> None:
-        app = build_app(s.slack_bot_token.get_secret_value(), c.service, c.store, s.escalation_channel)
+        app = build_app(s.slack_bot_token.get_secret_value(), c.service, c.store, s.escalation_channel, c.llm)
         asyncio.create_task(periodic_sync())
         await serve(app, s.slack_app_token.get_secret_value())
 
@@ -76,12 +108,16 @@ def cmd_serve() -> None:
 def cmd_stats() -> None:
     c = build_container()
     row = c.store.execute(
-        "SELECT COUNT(*) n, AVG(cost_usd) cost, AVG(duration_ms) ms, AVG(num_turns) turns, "
+        "SELECT COUNT(*) n, AVG(cost_usd) cost, SUM(cost_usd) total, AVG(duration_ms) ms, AVG(num_turns) turns, "
         "SUM(confidence='high') hi, SUM(confidence='medium') mid, SUM(confidence='low') lo FROM query_results"
     ).fetchone()
+    routes = c.store.execute("SELECT route, COUNT(*) n, AVG(cost_usd) cost FROM query_results GROUP BY route").fetchall()
     fb = c.store.execute("SELECT value, COUNT(*) n FROM feedback GROUP BY value").fetchall()
-    print(f"질문 {row['n']}건 · 평균 ${row['cost'] or 0:.4f} · {(row['ms'] or 0) / 1000:.1f}s · 도구 왕복 {row['turns'] or 0:.1f}회")
-    print(f"확신도 높음 {row['hi'] or 0} / 보통 {row['mid'] or 0} / 낮음 {row['lo'] or 0}")
+    miss = c.store.execute("SELECT COUNT(*) n FROM tool_calls WHERE tool='widen_scope'").fetchone()["n"]
+    print(f"질문 {row['n']}건 · 평균 ${row['cost'] or 0:.4f} · 합계 ${row['total'] or 0:.4f} · "
+          f"{(row['ms'] or 0) / 1000:.1f}s · 대화 왕복 {row['turns'] or 0:.1f}회")
+    print("경로별 " + ", ".join(f"{r['route']} {r['n']}건(평균 ${r['cost'] or 0:.4f})" for r in routes))
+    print(f"확신도 높음 {row['hi'] or 0} / 보통 {row['mid'] or 0} / 낮음 {row['lo'] or 0} · 범위 확장(범위 미스) {miss}회")
     print("피드백 " + (", ".join(f"{r['value']} {r['n']}" for r in fb) or "없음"))
 
 
@@ -89,16 +125,25 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(prog="askcode")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("sync")
+    sp = sub.add_parser("sync")
+    sp.add_argument("--force", action="store_true")
+    sp.add_argument("--no-external", action="store_true", help="노션·슬랙 수집 생략")
     ask = sub.add_parser("ask")
     ask.add_argument("question")
+    ask.add_argument("--domains", help="스코핑 없이 범위 지정 (쉼표 구분, 빈 값이면 전체)")
+    ev = sub.add_parser("eval")
+    ev.add_argument("--ids")
+    ev.add_argument("--limit", type=int)
+    ev.add_argument("--concurrency", type=int, default=2)
     sub.add_parser("serve")
     sub.add_parser("stats")
     args = parser.parse_args()
     if args.cmd == "sync":
-        cmd_sync()
+        cmd_sync(args.force, not args.no_external)
     elif args.cmd == "ask":
-        cmd_ask(args.question)
+        cmd_ask(args.question, args.domains)
+    elif args.cmd == "eval":
+        cmd_eval(args.ids, args.limit, args.concurrency)
     elif args.cmd == "serve":
         cmd_serve()
     elif args.cmd == "stats":

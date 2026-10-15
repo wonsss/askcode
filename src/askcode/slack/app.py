@@ -6,46 +6,87 @@ import asyncio
 import logging
 import re
 
+import httpx
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 
+from askcode.llm.complete import LLM
 from askcode.pipeline.answer import AnswerService
-from askcode.slack.blocks import answer_blocks, citation_line, fallback_text, thinking_blocks
+from askcode.pipeline.screenshot import ALLOWED_TYPES, MAX_BYTES, extract_screen, screenshot_context
+from askcode.slack.blocks import answer_blocks, fallback_text, thinking_blocks
 from askcode.store.db import Store
 
 log = logging.getLogger(__name__)
 MENTION_RE = re.compile(r"<@[A-Z0-9]+>")
+CLARIFY_RE = re.compile(r"^clarify_pick_")
+DEFAULT_SCREEN_QUESTION = "이 화면은 어떤 코드로 구현돼 있고, 주요 버튼은 어떤 조건으로 동작해?"
 
 
-def build_app(bot_token: str, service: AnswerService, store: Store, escalation_channel: str | None) -> AsyncApp:
+def build_app(bot_token: str, service: AnswerService, store: Store, escalation_channel: str | None,
+              llm: LLM | None = None) -> AsyncApp:
     app = AsyncApp(token=bot_token)
     inflight = asyncio.Semaphore(4)  # 동시 에이전트 실행 수 제한
 
-    async def handle_question(client, channel: str, user: str, text: str, thread_ts: str) -> None:
+    async def screenshot_extra(files: list[dict]) -> str:
+        img = next((f for f in files or [] if f.get("mimetype") in ALLOWED_TYPES and f.get("size", 0) <= MAX_BYTES), None)
+        if not img or not llm:
+            return ""
+        async with httpx.AsyncClient(timeout=30) as http:
+            r = await http.get(img["url_private_download"], headers={"Authorization": f"Bearer {bot_token}"})
+            r.raise_for_status()
+        texts, desc, _ = await extract_screen(llm, r.content, img["mimetype"])
+        return screenshot_context(texts, desc) if texts else ""
+
+    async def handle_question(client, channel: str, user: str, text: str, thread_ts: str, files: list[dict]) -> None:
         question = MENTION_RE.sub("", text).strip()
-        if not question:
+        has_image = any(f.get("mimetype") in ALLOWED_TYPES for f in files or [])
+        if not question and not has_image:
             await client.chat_postMessage(channel=channel, thread_ts=thread_ts,
                                           text="무엇이 궁금한지 함께 적어 주세요. 예: `의안 상세 화면은 네이티브야 웹뷰야?`")
             return
-        placeholder = await client.chat_postMessage(channel=channel, thread_ts=thread_ts,
-                                                    text="확인 중…", blocks=thinking_blocks())
-        async with inflight:
-            answer = await service.answer(question, source="slack", user_id=user, channel=channel, thread_ts=thread_ts)
-        await client.chat_update(channel=channel, ts=placeholder["ts"], text=fallback_text(answer),
-                                 blocks=answer_blocks(answer))
+        placeholder = await client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts, text="확인 중…",
+            blocks=thinking_blocks("⏳ 화면을 읽고 코드를 찾고 있어요…" if has_image else "⏳ 코드를 확인하고 있어요…"))
+        try:
+            extra = await screenshot_extra(files) if has_image else ""
+            async with inflight:
+                answer = await service.answer(question or DEFAULT_SCREEN_QUESTION, source="slack", user_id=user,
+                                              channel=channel, thread_ts=thread_ts, extra_context=extra)
+            await client.chat_update(channel=channel, ts=placeholder["ts"], text=fallback_text(answer),
+                                     blocks=answer_blocks(answer))
+        except Exception:
+            log.exception("question failed")
+            await client.chat_update(channel=channel, ts=placeholder["ts"],
+                                     text="처리 중 오류가 났어요. 잠시 후 다시 시도해 주세요.", blocks=[])
 
     @app.event("app_mention")
     async def on_mention(event, client):
         await handle_question(client, event["channel"], event.get("user", ""), event.get("text", ""),
-                              event.get("thread_ts") or event["ts"])
+                              event.get("thread_ts") or event["ts"], event.get("files", []))
 
     @app.event("message")
     async def on_dm(event, client):
         # DM만 처리. 봇 메시지·수정·삭제 이벤트는 무시한다(봇 자신의 답변을 다시 처리하지 않도록).
-        if event.get("channel_type") != "im" or event.get("bot_id") or event.get("subtype"):
+        if event.get("channel_type") != "im" or event.get("bot_id") or event.get("subtype") not in (None, "file_share"):
             return
         await handle_question(client, event["channel"], event.get("user", ""), event.get("text", ""),
-                              event.get("thread_ts") or event["ts"])
+                              event.get("thread_ts") or event["ts"], event.get("files", []))
+
+    @app.action(CLARIFY_RE)
+    async def on_clarify(ack, body, client):
+        await ack()
+        query_id, _, domain = body["actions"][0]["value"].partition("|")
+        q = store.execute("SELECT question, user_id, channel, thread_ts FROM queries WHERE id=?", (query_id,)).fetchone()
+        if not q:
+            return
+        channel, ts = body["channel"]["id"], body["message"]["ts"]
+        label = body["actions"][0]["text"]["text"]
+        await client.chat_update(channel=channel, ts=ts, text="확인 중…",
+                                 blocks=thinking_blocks(f"⏳ '{label}' 범위에서 찾고 있어요…"))
+        async with inflight:
+            answer = await service.answer(q["question"], source="slack", user_id=body["user"]["id"], channel=q["channel"],
+                                          thread_ts=q["thread_ts"], forced_domains=[] if domain == "*" else [domain])
+        await client.chat_update(channel=channel, ts=ts, text=fallback_text(answer), blocks=answer_blocks(answer))
 
     async def _thread(body) -> tuple[str, str]:
         msg = body["message"]
@@ -55,28 +96,30 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
     async def on_show_evidence(ack, body, client):
         await ack()
         query_id = body["actions"][0]["value"]
-        rows = store.execute(
-            "SELECT path, start_line, end_line, verified, reason FROM citations WHERE query_id=? ORDER BY id",
-            (query_id,),
-        ).fetchall()
+        rows = store.execute("SELECT source, path, start_line, end_line, verified, reason FROM citations "
+                             "WHERE query_id=? ORDER BY id", (query_id,)).fetchall()
         commit = store.execute("SELECT commit_sha FROM queries WHERE id=?", (query_id,)).fetchone()
         base = service.repo.web_base
         lines = []
         for r in rows:
             loc = f"{r['path']}:{r['start_line']}" + (f"-{r['end_line']}" if r["end_line"] != r["start_line"] else "")
-            url = f"{base}/blob/{commit['commit_sha'] if commit else 'main'}/{r['path']}#L{r['start_line']}"
+            doc = store.doc_file(r["path"]) if r["source"] in ("notion", "slack") else None
+            url = doc["url"] if doc else f"{base}/blob/{commit['commit_sha'] if commit else 'main'}/{r['path']}#L{r['start_line']}"
             mark = "✅" if r["verified"] else f"⚠️ {r['reason']}"
             lines.append(f"{mark} <{url}|`{loc}`>")
         tools = store.execute("SELECT tool, input_json FROM tool_calls WHERE query_id=? ORDER BY id", (query_id,)).fetchall()
         trail = "\n".join(f"{i + 1}. `{t['tool']}` {t['input_json'][:120]}" for i, t in enumerate(tools))
+        res = store.execute("SELECT route, cost_usd, duration_ms, num_turns FROM query_results WHERE query_id=?",
+                            (query_id,)).fetchone()
+        stat = (f"\n\n경로 `{res['route']}` · 도구 {len(tools)}회 · {(res['duration_ms'] or 0) / 1000:.1f}초 · "
+                f"${res['cost_usd'] or 0:.4f}") if res else ""
         channel, thread_ts = await _thread(body)
-        text = "*인용 전체*\n" + ("\n".join(lines) or "(없음)") + "\n\n*탐색 경로*\n" + (trail or "(없음)")
+        text = "*인용 전체*\n" + ("\n".join(lines) or "(없음)") + "\n\n*탐색 경로*\n" + (trail or "(없음)") + stat
         await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text[:3900])
 
     async def _feedback(ack, body, client, value: str, note: str):
         await ack()
-        query_id = body["actions"][0]["value"]
-        store.log_feedback(query_id, body["user"]["id"], value)
+        store.log_feedback(body["actions"][0]["value"], body["user"]["id"], value)
         await client.chat_postEphemeral(channel=body["channel"]["id"], user=body["user"]["id"], text=note)
 
     @app.action("feedback_up")
@@ -95,7 +138,7 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
         if not escalation_channel:
             return
         q = store.execute("SELECT question, channel, thread_ts FROM queries WHERE id=?", (query_id,)).fetchone()
-        a = store.execute("SELECT answer, confidence FROM query_results WHERE query_id=?", (query_id,)).fetchone()
+        a = store.execute("SELECT confidence FROM query_results WHERE query_id=?", (query_id,)).fetchone()
         permalink = await client.chat_getPermalink(channel=q["channel"], message_ts=q["thread_ts"])
         await client.chat_postMessage(
             channel=escalation_channel,
@@ -110,6 +153,3 @@ async def serve(app: AsyncApp, app_token: str) -> None:
     handler = AsyncSocketModeHandler(app, app_token)
     log.info("AskCode Slack bot started (Socket Mode)")
     await handler.start_async()
-
-
-__all__ = ["build_app", "serve", "citation_line"]

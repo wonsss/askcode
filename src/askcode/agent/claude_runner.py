@@ -70,7 +70,7 @@ class ClaudeAgentRunner:
             allowed_tools=allowed,
             mcp_servers={SERVER_NAME: server},
             system_prompt=request.system_prompt,
-            model=self.model,
+            model=request.model or self.model,
             max_turns=request.max_turns,
             max_budget_usd=request.max_budget_usd,
             permission_mode="dontAsk",
@@ -82,7 +82,7 @@ class ClaudeAgentRunner:
 
         started = time.monotonic()
         texts: list[str] = []
-        response = AgentResponse(text="", model=self.model)
+        response = AgentResponse(text="", model=request.model or self.model)
         try:
             async for message in query(prompt=request.question, options=options):
                 if isinstance(message, AssistantMessage):

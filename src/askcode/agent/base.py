@@ -24,6 +24,7 @@ class AgentRequest:
     tools: list[ToolSpec]
     max_turns: int = 12
     max_budget_usd: float | None = None
+    model: str | None = None
 
 
 @dataclass

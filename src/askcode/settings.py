@@ -38,6 +38,18 @@ class Settings(BaseSettings):
     slack_app_token: SecretStr | None = None
     escalation_channel: str | None = Field(default=None, description="'개발자에게 확인 요청'을 올릴 채널 ID")
 
+    # 단순 호출 비용 추정용 단가 (USD / 100만 토큰). 현재 가격표에 맞게 설정
+    price_small_input: float = 1.0
+    price_small_output: float = 5.0
+
+    # 노션 (봇 전용 내부 통합, 읽기 전용)
+    notion_token: SecretStr | None = None
+    notion_root_page_id: str | None = None
+
+    # 슬랙 소스 채널 (공개 채널 ID, 쉼표 구분) · 기간
+    slack_source_channels: str = ""
+    slack_source_days: int = 90
+
     # 도구 상한
     search_max_results: int = 20
     read_max_lines: int = 200
