@@ -247,10 +247,13 @@ def extract_spec(text: str) -> tuple[str | None, str]:
 
 def parse_spec(raw: str) -> dict:
     """명세 JSON을 읽어 최소 구조를 확인한다. 실패하면 WireframeSpecError."""
+    raw = raw[:MAX_HTML_BYTES]
     try:
-        spec = json.loads(raw[:MAX_HTML_BYTES])
+        spec = json.loads(raw)
     except json.JSONDecodeError as e:
-        raise WireframeSpecError(f"JSON 오류: {e}") from e
+        spec = _salvage_spec(raw)  # 요소 하나의 오타로 전체를 버리지 않는다
+        if not spec["screens"]:
+            raise WireframeSpecError(f"JSON 오류: {e}") from e
     if not isinstance(spec, dict):
         raise WireframeSpecError("명세가 객체가 아님")
     screens = [s for s in spec.get("screens") or [] if isinstance(s, dict) and isinstance(s.get("elements"), list)]
@@ -258,6 +261,64 @@ def parse_spec(raw: str) -> dict:
         raise WireframeSpecError("그릴 화면이 없음")
     spec["screens"] = screens[:MAX_SCREENS]
     return spec
+
+
+ELEMENT_START_RE = re.compile(r'\{\s*"type"\s*:')
+SCREEN_NAME_RE = re.compile(r'"name"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+
+def _object_end(text: str, start: int) -> int:
+    """text[start]의 '{'와 짝이 맞는 '}' 다음 위치. 문자열 안의 괄호는 무시한다. 잘려서 안 닫히면 -1."""
+    depth, in_str, esc = 0, False, False
+    for i in range(start, len(text)):
+        c = text[i]
+        if in_str:
+            esc, in_str = (False, in_str) if esc else (c == "\\", c != '"')
+        elif c == '"':
+            in_str = True
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return -1
+
+
+def _salvage_spec(raw: str) -> dict:
+    """깨진 명세에서 요소 객체를 하나씩 읽어 살린다. 읽히지 않는 요소만 버린다."""
+    def field(key: str, text: str) -> str | None:
+        m = re.search(rf'"{key}"\s*:\s*"((?:[^"\\]|\\.)*)"', text)
+        return json.loads(f'"{m.group(1)}"') if m else None
+
+    screens: list[dict] = []
+    pos = 0
+    while True:
+        m = ELEMENT_START_RE.search(raw, pos)
+        if not m:
+            break
+        # 이 요소 앞에 새 화면 이름이 있으면 화면을 연다 (요소 객체 안쪽은 이미 건너뛰었다)
+        for nm in SCREEN_NAME_RE.finditer(raw, pos, m.start()):
+            head = raw[raw.rfind("{", 0, nm.start()): m.start()]
+            screens.append({"name": json.loads(f'"{nm.group(1)}"'), "variant": field("variant", head), "elements": []})
+        end = _object_end(raw, m.start())
+        if end < 0:
+            break  # 잘린 요소부터는 버린다
+        try:
+            el = json.loads(raw[m.start():end])
+        except json.JSONDecodeError:
+            el = None
+        if isinstance(el, dict):
+            if not screens:
+                screens.append({"name": "", "elements": []})
+            screens[-1]["elements"].append(el)
+        pos = end
+    for sc in screens:
+        if not sc.get("variant"):
+            sc.pop("variant", None)
+    head = raw[: (ELEMENT_START_RE.search(raw) or re.search(r"$", raw)).start()]
+    return {"title": field("title", head), "platform": field("platform", head),
+            "screens": [sc for sc in screens if _valid_elements(sc["elements"])]}
 
 
 def is_comparison(spec: dict) -> bool:

@@ -48,9 +48,21 @@ async def test_extract_screen_survives_bad_output_and_rejects_bad_files():
     assert not cap and cap.cost_usd == 0
 
 
+async def test_extract_screen_keeps_what_it_read_when_output_is_cut():
+    cut = '{"screen_texts": ["의원", "입법 활동", "발의 키워드", "국무위원", "공직선거'
+    cap = await extract_screen(FakeLLM(cut), b"png", "image/png")
+    assert cap.texts == ["의원", "입법 활동", "발의 키워드", "국무위원"] and cap.cost_usd > 0
+
+
+def test_screenshot_block_says_when_nothing_was_read():
+    assert "읽지 못함" in screenshot_block(ScreenCapture()) and "읽지 못함" not in screenshot_block(SHOT)
+
+
 @pytest.mark.parametrize("q,expected", [
     ("이 화면에 공유 버튼 추가하면 어떻게 돼?", True), ("여기 알림 버튼 넣으면?", True), ("탭 순서 바꾸면 어떻게 될까", True),
     ("변경안 그려줘", True), ("알림 버튼은 왜 추가됐어?", False), ("이 화면 어떤 코드야", False),
+    ("의원 상세 화면에 의원에 대한 최신 뉴스들을 보여주는 거 어때?", True), ("공유 버튼 넣는 건 어떨까", True),
+    ("이 화면 어때?", False),
 ])
 def test_is_change_request(q, expected):
     assert is_change_request(q) is expected
@@ -112,6 +124,23 @@ def test_render_proposal_alone_points_to_original_screenshot():
     out = render_spec(spec)
     assert out.count('class="frame"') == 1 and 'class="variant proposed">변경안' in out
     assert "원본 스크린샷과 나란히" in out and out.count('class="isnew ') == 2
+
+
+def test_parse_spec_salvages_elements_around_a_typo():
+    # 실측(2026-10-15): 모델이 {"type":"button":"더보기",...}처럼 쓴 요소 하나 때문에 그림 전체가 실패했다
+    raw = ('{"title":"의원 상세 - 최신 뉴스","platform":"app","screens":[{"name":"변경안: 의원 상세","variant":"proposed",'
+           '"elements":[{"type":"header","title":"의원 이름 {괄호}","left":"뒤로"},'
+           '{"type":"section","title":"최신 뉴스","new":true,"note":"새 \\"뉴스\\" 구획"},'
+           '{"type":"button":"더보기","label":"뉴스 더보기"},'
+           '{"type":"columns","cols":[[{"type":"text","text":"안쪽"}]]}]},'
+           '{"name":"2. 뉴스 목록","elements":[{"type":"card_list","count":3},{"type":"text","text":"잘린')
+    spec = parse_spec(raw)
+    assert spec["title"] == "의원 상세 - 최신 뉴스" and spec["platform"] == "app"
+    first, second = spec["screens"]
+    assert first["variant"] == "proposed" and [e["type"] for e in first["elements"]] == ["header", "section", "columns"]
+    assert first["elements"][0]["title"] == "의원 이름 {괄호}" and first["elements"][1]["note"] == '새 "뉴스" 구획'
+    assert second["name"] == "2. 뉴스 목록" and "variant" not in second and [e["type"] for e in second["elements"]] == ["card_list"]
+    assert has_proposal(spec) and "🆕" in render_spec(spec)
 
 
 def test_plain_wireframe_is_not_comparison():
@@ -184,6 +213,15 @@ async def test_screenshot_question_keeps_code_lookup_and_adds_vision_cost(store,
     q = runner.requests[0].question
     assert a.route == "agent" and not a.comparison and '"팔로우"' in q and "code_search" in q and "변경안 목업" not in q
     assert a.cost_usd == pytest.approx(0.0507)
+
+
+async def test_unreadable_screenshot_still_takes_mockup_path(store, tools, repo_cfg, repo_dir):
+    runner = MockupRunner()
+    svc = AnswerService(store, repo_cfg, repo_dir, runner, tools,
+                        scoper=FakeScoper(Scope(kind="wireframe", confidence="high")))
+    a = await svc.answer("의원 상세 화면에 최신 뉴스를 보여주는 거 어때?", screenshot=ScreenCapture(cost_usd=0.001))
+    assert a.comparison and "읽지 못함" in runner.requests[0].question and a.attachment[0].startswith("mockup-")
+    assert a.vision_cost_usd == 0.001
 
 
 async def test_refused_screenshot_request_still_records_vision_cost(store, tools, repo_cfg, repo_dir):

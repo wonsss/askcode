@@ -301,7 +301,7 @@ class AnswerService:
         """screenshot: 첨부 이미지에서 읽은 문구·배치(이미지 자체는 받지 않는다). 추출 비용은 질문 비용에 합산한다."""
         commit = self.store.get_repo_commit(self.repo.name) or "unknown"
         query_id = self.store.log_query(question, source, user_id, channel, thread_ts, commit)
-        has_image = bool(screenshot)
+        has_image = screenshot is not None  # 문구를 하나도 못 읽어도 이미지가 왔으면 첨부로 본다
         vision_cost = screenshot.cost_usd if screenshot is not None else 0.0
 
         # 1) 스코핑
@@ -339,7 +339,7 @@ class AnswerService:
         extra = ""
         if hints:
             extra += f"- 용어 힌트: {hints}\n"
-        if has_image and not comparison and not extra_context:
+        if has_image and screenshot.texts and not comparison and not extra_context:
             extra_context = screenshot_context(screenshot.texts, screenshot.description)
         if extra_context:
             extra += f"- 첨부 맥락: {extra_context}\n"

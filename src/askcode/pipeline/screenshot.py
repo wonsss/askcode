@@ -18,7 +18,8 @@ MASK = "[가림]"
 
 EXTRACT_PROMPT = """\
 이 앱/웹 화면 스크린샷에서 UI에 보이는 문구와 화면 배치를 추출하세요.
-- 버튼, 탭, 제목, 안내 문구, 빈 상태 메시지처럼 코드에 하드코딩됐을 법한 고정 문구를 우선합니다.
+- 버튼, 탭, 제목, 안내 문구, 빈 상태 메시지처럼 코드에 하드코딩됐을 법한 고정 문구를 우선합니다. 최대 20개.
+- 목록·차트·태그 구름처럼 데이터로 채워지는 값은 하나하나 옮기지 말고 layout에 "의안 목록(데이터)"처럼 한 줄로 적습니다.
 - 사람 이름, 전화번호, 이메일, 주소, 계정 정보처럼 사용자 데이터로 보이는 값은 "[가림]"으로 바꿉니다.
 - layout은 위에서 아래 순서로 화면 구획을 한 줄씩 적습니다(최대 12줄). 예: "상단 바: 뒤로, 제목 '의안 상세', 오른쪽 아이콘 1개"
 - 아래 JSON만 출력합니다.
@@ -47,20 +48,37 @@ def _clean(v: object, limit: int) -> str:
 async def extract_screen(llm: LLM, image: bytes, media_type: str) -> ScreenCapture:
     if media_type not in ALLOWED_TYPES or len(image) > MAX_BYTES:
         return ScreenCapture()
-    comp = await llm.vision(EXTRACT_PROMPT, image, media_type)
+    comp = await llm.vision(EXTRACT_PROMPT, image, media_type, max_tokens=1500)
     cost = estimate_cost(comp.model, comp.input_tokens, comp.output_tokens,
                          comp.cache_read_tokens, comp.cache_write_tokens) or 0.0
-    m = re.search(r"\{.*\}", comp.text, re.S)
-    try:
-        data = json.loads(m.group(0)) if m else {}
-    except json.JSONDecodeError:
-        data = {}
-    data = data if isinstance(data, dict) else {}
+    data = _parse(comp.text)
     texts = [t.strip() for t in (data.get("screen_texts") or [])
              if isinstance(t, str) and t.strip() and MASK not in t][:20]
     layout = [x for x in (_clean(v, 120) for v in (data.get("layout") or [])[:12]) if x]
     return ScreenCapture(texts=texts, description=_clean(data.get("description"), 200),
                          platform="web" if data.get("platform") == "web" else "app", layout=layout, cost_usd=cost)
+
+
+def _strings_after(key: str, text: str) -> list[str]:
+    """잘린 JSON에서 "key": [ ... 의 문자열을 닫힌 데까지 건진다."""
+    m = re.search(rf'"{key}"\s*:\s*\[(.*?)(?:\]|$)', text, re.S)
+    return re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1)) if m else []
+
+
+def _parse(text: str) -> dict:
+    """추출 응답 JSON. 출력 한도로 잘려도 읽은 데까지는 쓴다."""
+    m = re.search(r"\{.*\}", text, re.S)
+    if m:
+        try:
+            data = json.loads(m.group(0))
+            if isinstance(data, dict):
+                return data
+        except json.JSONDecodeError:
+            pass
+    desc = re.search(r'"description"\s*:\s*"((?:[^"\\]|\\.)*)"', text)
+    plat = re.search(r'"platform"\s*:\s*"(\w+)"', text)
+    return {"screen_texts": _strings_after("screen_texts", text), "layout": _strings_after("layout", text),
+            "description": desc.group(1) if desc else "", "platform": plat.group(1) if plat else "app"}
 
 
 def screenshot_context(texts: list[str], description: str) -> str:
@@ -78,4 +96,6 @@ def screenshot_block(cap: ScreenCapture) -> str:
     if cap.layout:
         lines.append("- 배치(위→아래):")
         lines += [f"  {i}. {x}" for i, x in enumerate(cap.layout, 1)]
+    if not cap:
+        lines.append("- 이미지에서 문구·배치를 읽지 못함. 질문 속 화면 이름으로 find_screen을 써서 화면 코드를 특정하고, 코드의 화면 구성을 따를 것")
     return "\n".join(lines)
