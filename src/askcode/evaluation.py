@@ -62,10 +62,11 @@ def load_golden(path: Path) -> list[dict]:
 
 
 async def judge(llm: LLM, item: dict, answer: Answer) -> tuple[bool | None, str]:
+    """대형 모델로 판정한다. 소형 모델은 판정 이유와 결론이 서로 모순되는 경우가 잦았다."""
     try:
         comp = await llm.complete(JUDGE_PROMPT.format(
             question=item["question"], expected=item.get("answer", ""), notes=item.get("notes", "-"),
-            answer=answer.body[:3000]), tier="small", max_tokens=600)
+            answer=answer.body[:3000]), tier="large", max_tokens=4000)
         m = re.search(r"\{.*\}", comp.text, re.S)
         d = json.loads(m.group(0)) if m else {}
         if not isinstance(d.get("pass"), bool):
