@@ -33,3 +33,27 @@ async def test_run_eval_scores_behavior_and_evidence(store, tools, repo_cfg, rep
     assert not r["q3"].behavior_ok and r["q3"].correct is False  # 되묻기했지만 거절이 기대
     assert summary["behavior"] == "67% (2/3)" and md.exists()
     assert "| q1 |" in render_markdown(results, summary, "abc1234")
+
+
+def test_golden_expected_domains_exist():
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).parent.parent
+    ids = {d["id"] for d in yaml.safe_load((root / "config/domains.yaml").read_text(encoding="utf-8"))["domains"]}
+    for item in yaml.safe_load((root / "eval/golden.yaml").read_text(encoding="utf-8")):
+        assert set(item.get("expected_domains") or []) <= ids, item["id"]
+
+
+async def test_truncated_judge_is_not_counted_as_wrong():
+    from askcode.evaluation import judge
+    from askcode.llm.complete import Completion
+    from askcode.pipeline.answer import Answer
+
+    class Truncated:
+        async def complete(self, *a, **k):
+            return Completion('{"pass": false, "reason": "길게 이어지다 잘', "m", 1, 1, 0, 0)
+
+    ok, reason = await judge(Truncated(), {"question": "q", "answer": "a"}, Answer("id", "답", [], "low", "c"))
+    assert ok is None and "판정 실패" in reason

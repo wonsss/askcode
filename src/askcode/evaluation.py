@@ -27,7 +27,7 @@ JUDGE_PROMPT = """\
 - 핵심 수치·조건·화면 방식이 맞으면 통과입니다. 표현이 달라도 됩니다.
 - 기대 답과 모순되는 사실이 있거나 핵심을 빠뜨리면 실패입니다.
 - 채점 메모가 있으면 따릅니다.
-JSON만 출력: {{"pass": true|false, "reason": "한 문장"}}
+JSON만 출력: {{"pass": true|false, "reason": "100자 이내 한 문장"}}
 
 질문: {question}
 기대 답: {expected}
@@ -65,10 +65,13 @@ async def judge(llm: LLM, item: dict, answer: Answer) -> tuple[bool | None, str]
     try:
         comp = await llm.complete(JUDGE_PROMPT.format(
             question=item["question"], expected=item.get("answer", ""), notes=item.get("notes", "-"),
-            answer=answer.body[:3000]), tier="small", max_tokens=200)
+            answer=answer.body[:3000]), tier="small", max_tokens=600)
         m = re.search(r"\{.*\}", comp.text, re.S)
         d = json.loads(m.group(0)) if m else {}
-        return bool(d.get("pass")), str(d.get("reason", ""))[:200]
+        if not isinstance(d.get("pass"), bool):
+            # 잘리거나 형식이 틀린 판정을 오답으로 세지 않는다
+            return None, "판정 실패: 응답 형식"
+        return d["pass"], str(d.get("reason", ""))[:200]
     except Exception as exc:
         return None, f"판정 실패: {type(exc).__name__}"
 
