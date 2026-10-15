@@ -1,6 +1,6 @@
 // AskCode 메뉴 막대 앱.
-// 화면만 맡고, 동작은 검증된 CLI(`askcode status --json`, `host on|off`, `backup`)를 부른다.
-// 인증은 AskCode .env의 Claude API 키다. 상태 조회는 Claude를 부르지 않는다(비용 0).
+// 화면만 맡고, 동작은 검증된 CLI(`askcode status --json`, `host on|off`, `provider`, `backup`)를 부른다.
+// 인증은 .env의 ASKCODE_LLM_PROVIDER가 정한다(API 키 | 로컬 claude CLI 구독). 상태 조회는 Claude를 부르지 않는다(비용 0).
 
 import AppKit
 import SwiftUI
@@ -24,6 +24,7 @@ struct RecentQuestion: Decodable, Identifiable {
     let id: String
     let question: String
     let route: String
+    let provider: String?   // api | subscription — 답변 시점의 인증 경로
     let confidence: String?
     let ts: Double
     let cost: Double
@@ -46,6 +47,8 @@ struct AppStatus: Decodable {
     let installed: Bool
     let console_url: String
     let auth: String
+    let provider: String?       // api | subscription
+    let claude_cli: Bool?       // subscription 모드일 때 claude 바이너리 존재 여부
     let today: Money
     let week: Money
     let check: Int
@@ -139,6 +142,7 @@ final class Store: ObservableObject {
     @Published var message: String?      // 마지막 결과·오류
     @Published var claude: ClaudeCheck?
     @Published var lastUpdated: Date?
+    @Published var consoleUp = false     // 127.0.0.1:8787이 실제 응답하는지(launchd 상태와 별개로 수동 실행도 잡는다)
 
     private var timer: Timer?
     private var userToggled = false
@@ -171,6 +175,7 @@ final class Store: ObservableObject {
             let wasRunning = health == .running
             status = s
             lastUpdated = Date()
+            probeConsole()
             if wasRunning && health != .running && !userToggled {
                 notify("AskCode 봇이 멈췄어요", "launchd가 다시 띄우는 중이에요. 계속되면 로그를 확인하세요.")
             }
@@ -184,6 +189,14 @@ final class Store: ObservableObject {
         perform(turnOn ? "켜는 중" : "끄는 중", ["host", turnOn ? "on" : "off"]) { r in
             r.code == 0 ? (turnOn ? "켰어요. 봇이 슬랙에 연결되기까지 10초쯤 걸려요." : "껐어요. 잠자기 방지도 풀렸어요.")
                         : "실패: " + r.err.suffix(200)
+        }
+    }
+
+    func setProvider(_ mode: String) {
+        guard mode != status?.provider else { return }
+        perform("인증 경로 바꾸는 중", ["provider", mode]) { r in
+            r.code == 0 ? (r.out.split(separator: "\n").first.map(String.init) ?? "바꿨어요.")
+                        : "전환 실패: " + r.err.suffix(200)
         }
     }
 
@@ -218,13 +231,38 @@ final class Store: ObservableObject {
         }
     }
 
+    /// 콘솔이 실제로 응답하는지 본다. HTTP 응답(상태 코드 무관)이 오면 켜져 있는 것.
+    private func probeConsole() {
+        Task {
+            consoleUp = await consoleReachable()
+        }
+    }
+
+    private func consoleReachable() async -> Bool {
+        guard let base = status?.console_url, let url = URL(string: base) else { return false }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 1.5
+        return (try? await URLSession.shared.data(for: req)) != nil
+    }
+
     func open(_ path: String) {
         guard let base = status?.console_url, let url = URL(string: base + path) else { return }
-        if status?.jobs["console"]?.state != "running" {
-            message = "웹 콘솔이 꺼져 있어요. 먼저 켜 주세요."
+        if !consoleUp {
+            message = "웹 콘솔이 꺼져 있어요. '켜기'로 켜거나 콘솔 작업 상태를 확인하세요."
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    func openConsole() {
+        Task {
+            if await consoleReachable(), let url = URL(string: status?.console_url ?? "") {
+                NSWorkspace.shared.open(url)
+            } else {
+                consoleUp = false
+                message = "웹 콘솔이 꺼져 있어요. '켜기'로 켜거나 콘솔 작업 상태를 확인하세요."
+            }
+        }
     }
 
     func openLogs() {
@@ -266,6 +304,7 @@ struct StatCard: View {
 struct JobRow: View {
     let name: String
     let job: JobState?
+    var up: Bool? = nil  // 웹 콘솔만: 실제 HTTP 응답 여부(수동 실행·기동 지연을 구분하기 위함)
 
     var body: some View {
         HStack(spacing: 6) {
@@ -277,6 +316,7 @@ struct JobRow: View {
     }
 
     private var color: Color {
+        if let up { return up ? .green : (job?.state == "running" ? .orange : .gray) }
         switch job?.state {
         case "running": return .green
         case "waiting": return name == "백업" ? .blue : .orange
@@ -285,6 +325,10 @@ struct JobRow: View {
     }
 
     private var text: String {
+        if let up {
+            if up { return "실행 중" }
+            return job?.state == "running" ? "응답 없음" : "꺼짐"
+        }
         switch job?.state {
         case "running": return "실행 중"
         case "waiting": return name == "백업" ? "매일 03:30" : "재시작 대기"
@@ -303,7 +347,7 @@ struct PanelView: View {
             if let s = store.status {
                 VStack(spacing: 4) {
                     JobRow(name: "봇", job: s.jobs["bot"])
-                    JobRow(name: "웹 콘솔", job: s.jobs["console"])
+                    JobRow(name: "웹 콘솔", job: s.jobs["console"], up: store.consoleUp)
                     JobRow(name: "백업", job: s.jobs["backup"])
                 }
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
@@ -324,7 +368,7 @@ struct PanelView: View {
             }
             Divider()
             HStack {
-                Button("웹 콘솔") { store.open("/") }
+                Button("웹 콘솔") { store.openConsole() }
                 Button("로그") { store.openLogs() }
                 Spacer()
                 Button("종료") { NSApplication.shared.terminate(nil) }
@@ -341,7 +385,8 @@ struct PanelView: View {
             Image(systemName: store.health.symbol).foregroundStyle(store.health.color).font(.title2)
             VStack(alignment: .leading, spacing: 0) {
                 Text("AskCode").font(.headline)
-                Text(store.busy ?? "봇 \(store.health.label)").font(.caption).foregroundStyle(.secondary)
+                Text(store.busy ?? "봇 \(store.health.label)" + ((store.status?.provider).map { " · \(providerLabel($0))" } ?? ""))
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             if store.busy != nil {
@@ -366,7 +411,8 @@ struct PanelView: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(q.question).font(.callout).lineLimit(1).truncationMode(.tail)
-                        Text("\(timeAgo(q.ts)) · \(q.route) · \(confidence(q.confidence)) · \(money(q.cost))"
+                        Text("\(timeAgo(q.ts)) · \(q.route)\(q.provider.map { " · " + providerLabel($0) } ?? "")"
+                             + " · \(confidence(q.confidence)) · \(money(q.cost))"
                              + (q.flags.isEmpty ? "" : " · ⚠︎"))
                             .font(.caption2).foregroundStyle(.secondary)
                     }
@@ -388,19 +434,37 @@ struct PanelView: View {
                 Spacer()
                 Button("지금 백업") { store.backupNow() }.controlSize(.small).disabled(store.busy != nil)
             }
-            HStack {
-                Image(systemName: "key").foregroundStyle(.secondary)
-                Text(authText(s)).font(.caption)
+            HStack(spacing: 6) {
+                Image(systemName: s.provider == "subscription" ? "terminal" : "key")
+                    .foregroundStyle(.secondary)
+                Picker("", selection: Binding(
+                    get: { s.provider ?? "api" },
+                    set: { store.setProvider($0) })) {
+                    Text("API").tag("api")
+                    Text("구독").tag("subscription")
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 104)
+                .disabled(store.busy != nil)
+                Text(authText(s)).font(.caption).lineLimit(1).truncationMode(.tail)
                 Spacer()
-                Button("크레딧 확인") { store.checkClaude() }.controlSize(.small).disabled(store.busy != nil)
+                Button(s.provider == "subscription" ? "로그인 확인" : "크레딧 확인") { store.checkClaude() }
+                    .controlSize(.small).disabled(store.busy != nil)
             }
         }
     }
 
+    private func providerLabel(_ p: String) -> String { p == "subscription" ? "구독" : "API" }
+
     private func authText(_ s: AppStatus) -> String {
+        if s.provider == "subscription" {
+            if s.claude_cli == false { return "claude CLI 없음" }
+            guard let c = store.claude else { return "로컬 구독 로그인" }
+            return c.ok ? "구독 로그인 정상" : "로그인 필요 (claude auth login)"
+        }
         if s.auth != "api_key" { return "API 키 없음 (.env)" }
         guard let c = store.claude else { return "Claude API 키" }
-        return c.ok ? "Claude API 키 · 크레딧 정상" : "Claude 호출 불가"
+        return c.ok ? "API 키 · 크레딧 정상" : "Claude 호출 불가"
     }
 
     private func money(_ v: Double) -> String { v < 1 ? String(format: "$%.4f", v) : String(format: "$%.2f", v) }
