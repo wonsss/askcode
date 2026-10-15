@@ -180,7 +180,7 @@ def _ranks(ids: list[str], edges: list[dict]) -> tuple[dict[str, int], set[int]]
     return rank, back
 
 
-def _layout(flow: dict) -> tuple[dict[str, dict], int, int, set[int]]:
+def _layout(flow: dict) -> tuple[dict[str, dict], int, int, set[int], set[int]]:
     nodes, edges = flow["nodes"], flow["edges"]
     ids = [n["id"] for n in nodes]
     rank, back = _ranks(ids, edges)
@@ -218,9 +218,10 @@ def _layout(flow: dict) -> tuple[dict[str, dict], int, int, set[int]]:
             box[i] = {"cx": cx, "y": y + (row_h - h) / 2, "h": h, "w": NODE_W,
                       "lines": _wrap(by_id[i]["text"], NODE_W - (56 if by_id[i]["type"] == "decision" else 28))}
         y += row_h + RANK_GAP
-    n_back = len(back)
-    total_w = MARGIN * 2 + width + (n_back * BACK_GAP + 12 if n_back else 0)
-    return box, int(total_w), int(y - RANK_GAP + MARGIN), back
+    # 되돌아가는 엣지와 두 층 이상 건너뛰는 엣지는 노드를 가로지르지 않게 오른쪽 바깥 통로로 돌린다
+    side = back | {k for k, e in enumerate(edges) if rank[e["to"]] - rank[e["from"]] > 1}
+    total_w = MARGIN * 2 + width + (len(side) * BACK_GAP + 52 if side else 0)
+    return box, int(total_w), int(y - RANK_GAP + MARGIN), back, side
 
 
 # ── 그리기 ───────────────────────────────────────────────────────
@@ -262,22 +263,26 @@ def _label(x: float, y: float, label: str) -> str:
             f'<text x="{_f(x)}" y="{_f(y + 4)}" font-size="11" fill="#333" text-anchor="middle">{_e(label)}</text>')
 
 
-def _edges(flow: dict, box: dict[str, dict], back: set[int], right: float) -> str:
+def _edges(flow: dict, box: dict[str, dict], back: set[int], side: set[int], right: float) -> str:
     out: list[str] = []
     labels: list[str] = []
-    lane = 0
+    routed = [k for k, e in enumerate(flow["edges"])
+              if k in side or box[e["to"]]["y"] <= box[e["from"]]["y"]]
+    # 위에서 출발하는 엣지일수록 바깥 통로를 써서 통로끼리 교차하지 않게 한다
+    routed.sort(key=lambda k: (box[flow["edges"][k]["from"]]["y"], k))
+    lanes = {k: len(routed) - i for i, k in enumerate(routed)}
     for k, e in enumerate(flow["edges"]):
         a, b = box[e["from"]], box[e["to"]]
-        if k in back or b["y"] <= a["y"]:
-            # 되돌아가는 엣지: 오른쪽 바깥 통로로 돌아 대상 노드 오른쪽으로 들어간다
-            lane += 1
+        if k in lanes:
+            # 오른쪽 바깥 통로로 돌아 대상 노드 오른쪽으로 들어간다. 되돌아가는 엣지는 점선
             sx, sy = a["cx"] + a["w"] / 2, a["y"] + a["h"] / 2
             tx, ty = b["cx"] + b["w"] / 2, b["y"] + b["h"] / 2
-            xr = right + lane * BACK_GAP
+            xr = right + lanes[k] * BACK_GAP
+            dash = ' stroke-dasharray="4 3"' if k in back or b["y"] <= a["y"] else ""
             out.append(f'<path d="M{_f(sx)},{_f(sy)} H{_f(xr)} V{_f(ty)} H{_f(tx + 7)}" fill="none" stroke="#555" '
-                       f'stroke-width="1.3" stroke-dasharray="4 3"/>')
+                       f'stroke-width="1.3"{dash}/>')
             out.append(f'<polygon points="{_f(tx)},{_f(ty)} {_f(tx + 8)},{_f(ty - 4.5)} {_f(tx + 8)},{_f(ty + 4.5)}" fill="#555"/>')
-            labels.append(_label(xr, (sy + ty) / 2, e["label"]))  # 세로 통로 가운데
+            labels.append(_label(sx + 26, sy, e["label"]))  # 출발 노드 바로 오른쪽
             continue
         sx, sy = a["cx"], a["y"] + a["h"]
         tx, ty = b["cx"], b["y"]
@@ -295,12 +300,12 @@ def _edges(flow: dict, box: dict[str, dict], back: set[int], right: float) -> st
 
 def render_flow(flow: dict, ref_ok: Callable[[str], bool] | None = None) -> str:
     """흐름 명세 → 완결된 HTML 문서(인라인 SVG + 근거 표). ref_ok가 주어지면 근거를 검증 표시한다."""
-    box, width, height, back = _layout(flow)
-    right = max(b["cx"] + b["w"] / 2 for b in box.values()) + 10
+    box, width, height, back, side = _layout(flow)
+    right = max(b["cx"] + b["w"] / 2 for b in box.values()) + 40  # 라벨 자리를 비운다
     nums = {n["id"]: i for i, n in enumerate(flow["nodes"], 1)}
     shapes = "".join(_shape(n, box[n["id"]], nums[n["id"]]) for n in flow["nodes"])
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" '
-           f'role="img" aria-label="로직 흐름도">{_edges(flow, box, back, right)}{shapes}</svg>')
+           f'role="img" aria-label="로직 흐름도">{_edges(flow, box, back, side, right)}{shapes}</svg>')
     rows = []
     for n in flow["nodes"]:
         ref = n["ref"]
