@@ -143,6 +143,13 @@ def test_parse_spec_salvages_elements_around_a_typo():
     assert has_proposal(spec) and "🆕" in render_spec(spec)
 
 
+def test_boolean_values_are_not_printed():
+    # 실측(2026-10-15): "thumb": true가 썸네일 자리에 "True"로 찍혔다
+    out = render_spec(parse_spec(json.dumps({"screens": [{"name": "a", "elements": [
+        {"type": "card_list", "card": {"title": "기사 제목", "thumb": True}, "count": 1}]}]})))
+    assert 'class="thumb"></div>' in out and "True" not in out
+
+
 def test_plain_wireframe_is_not_comparison():
     spec = parse_spec(json.dumps({"screens": [{"name": "a", "elements": [{"type": "text", "text": "x", "new": True}]}]}))
     out = render_spec(spec)

@@ -349,8 +349,8 @@ def _valid_elements(elements: list) -> list[dict]:
 
 
 def _t(v: object) -> str:
-    """모델이 준 값 → 이스케이프한 짧은 텍스트."""
-    if v is None or isinstance(v, (dict, list)):
+    """모델이 준 값 → 이스케이프한 짧은 텍스트. true/false는 글자로 찍지 않는다(예: "thumb": true → 빈 자리 박스)."""
+    if v is None or isinstance(v, (bool, dict, list)):
         return ""
     return html_lib.escape(str(v)[:MAX_TEXT], quote=True)
 
