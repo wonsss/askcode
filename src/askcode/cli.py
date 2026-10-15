@@ -6,6 +6,7 @@
   askcode serve                            슬랙 봇 실행 (주기적 동기화 포함)
   askcode stats                            감사 로그 요약
   askcode console [--port 8787]            웹 콘솔 (로컬 전용, 읽기 전용, API 비용 없음)
+  askcode host on|off|status               맥북 호스트 모드 (봇·콘솔 상시 실행, 잠자기 방지, 매일 백업)
   askcode backup [--dest DIR]              감사 로그 백업 (+ ASKCODE_BACKUP_UPLOAD_CMD로 서버 밖 복사)
   askcode restore-check [백업 파일]         백업 복구 확인 (무결성·질문 수)
   askcode maintenance [--vacuum]           오래된 커밋 스냅숏·WAL 정리
@@ -129,6 +130,11 @@ def cmd_serve() -> None:
     s = c.settings
     if not (s.slack_bot_token and s.slack_app_token):
         sys.exit("ASKCODE_SLACK_BOT_TOKEN, ASKCODE_SLACK_APP_TOKEN이 필요합니다.")
+    from askcode.host import acquire_serve_lock
+
+    _lock = acquire_serve_lock(s.data_dir)  # noqa: F841 — 프로세스가 끝날 때까지 잡고 있어야 한다
+    if _lock is None:
+        sys.exit("봇이 이미 실행 중이에요(같은 질문에 답이 두 번 가지 않도록 하나만 띄웁니다). askcode host status로 확인하세요.")
     from askcode.doctor import claude_preflight
 
     problem = claude_preflight(s)  # 키·크레딧 문제를 첫 질문이 아니라 시작할 때 알린다
@@ -245,6 +251,30 @@ def cmd_redact(query_id: str, reason: str, operator: str | None) -> None:
     print(f"가림 완료: {query_id} (질문·답·도구 입력 텍스트). 행과 가림 기록은 남습니다. 처리자 {who}, 사유: {reason}")
 
 
+def cmd_host(action: str, port: int) -> None:
+    """맥북 호스트 모드 (launchd). API 키 인증 그대로, Claude 비용은 질문을 받을 때만 든다."""
+    from askcode import host
+    from askcode.settings import Settings
+
+    if sys.platform != "darwin":
+        sys.exit("host 명령은 macOS 전용입니다. 서버는 docker compose를 쓰세요(docs/deploy-vultr.md).")
+    s = Settings()
+    logs = s.data_dir / "logs"
+    if action == "on":
+        names = host.on(Path.cwd(), logs, port)
+        print(f"켰어요: {', '.join(names)} · 콘솔 http://127.0.0.1:{port} · 로그 {logs}/")
+        print("켜져 있는 동안 맥북은 잠자기에 들어가지 않아요(전원 연결 권장, 덮개를 닫으면 멈출 수 있음). 끌 때: askcode host off")
+    elif action == "off":
+        names = host.off()
+        print(f"껐어요: {', '.join(names) or '실행 중인 것 없음'} · 잠자기 방지도 풀렸어요")
+    else:
+        for name, state, last in host.status(logs):
+            print(f"{name:8} {state}")
+            if last:
+                print(f"         └ {last}")
+
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(prog="askcode")
@@ -273,6 +303,9 @@ def main() -> None:
     rd.add_argument("query_id")
     rd.add_argument("--reason", required=True)
     rd.add_argument("--operator")
+    ho = sub.add_parser("host", help="맥북 호스트 모드: 봇·콘솔 상시 실행, 잠자기 방지, 매일 백업 (macOS)")
+    ho.add_argument("action", choices=["on", "off", "status"])
+    ho.add_argument("--port", type=int, default=8787)
     con = sub.add_parser("console", help="웹 콘솔 (로컬 전용, 읽기 전용)")
     con.add_argument("--port", type=int, default=8787)
     dr = sub.add_parser("doctor")
@@ -298,6 +331,8 @@ def main() -> None:
         cmd_maintenance(args.vacuum)
     elif args.cmd == "redact":
         cmd_redact(args.query_id, args.reason, args.operator)
+    elif args.cmd == "host":
+        cmd_host(args.action, args.port)
     elif args.cmd == "console":
         cmd_console(args.port)
     elif args.cmd == "stats":
