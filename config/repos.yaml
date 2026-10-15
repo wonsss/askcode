@@ -1,0 +1,28 @@
+# 레포 레지스트리. 기준 ref를 바꾸면(예: 릴리스 태그) 답변 기준 버전이 바뀐다.
+defaults:
+  exclude:
+    - "**/.env*"
+    - "**/pnpm-lock.yaml"
+    - "**/package-lock.json"
+    - "**/yarn.lock"
+    - "**/*.{png,jpg,jpeg,gif,webp,ico,svg,otf,ttf,woff,woff2,tgz,zip,pdf,lottie,mp4,mov}"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/node_modules/**"
+  include_exceptions:
+    - "**/.env.example"
+
+repos:
+  - name: law-watch
+    url: https://github.com/wonsss/law-watch
+    ref: main
+    description: 국회 입법 기록 추적 서비스 — Next.js 웹, Expo 하이브리드 앱, NestJS API·워커 모노레포
+    context_files:
+      - CLAUDE.md
+    exclude:
+      - "apps/worker/scripts/*-results.json"
+      - "archive/**"
+      - ".impeccable/**"
+      - ".gstack/**"
+      - ".playwright-mcp/**"
+      - "**/storybook-static/**"
