@@ -78,7 +78,8 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
             return
         placeholder = await client.chat_postMessage(
             channel=channel, thread_ts=thread_ts, text="확인 중…",
-            blocks=thinking_blocks("⏳ 화면을 읽고 코드를 찾고 있어요…" if has_image else "⏳ 코드를 확인하고 있어요…"))
+            blocks=thinking_blocks("⏳ 화면을 읽고 코드를 찾고 있어요…" if has_image else "⏳ 코드를 확인하고 있어요…",
+                                   public_note=True))
         try:
             shot = await read_screenshot(files) if has_image else None
             async with inflight:

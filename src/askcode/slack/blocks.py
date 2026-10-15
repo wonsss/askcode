@@ -61,8 +61,15 @@ def _loc(path: str, start: int, end: int) -> str:
     return f"{short_path(path)}:{start}" + (f"-{end}" if end != start else "")
 
 
-def thinking_blocks(text: str = "⏳ 코드를 확인하고 있어요…") -> list[dict]:
-    return [{"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}]
+PUBLIC_NOTE = "🌐 질문과 답은 팀 콘솔에 공개돼요."
+
+
+def thinking_blocks(text: str = "⏳ 코드를 확인하고 있어요…", public_note: bool = False) -> list[dict]:
+    """처리 중 메시지. 새 질문을 받을 때는 콘솔 공개 안내를 함께 보인다(DM도 공개되므로)."""
+    elements = [{"type": "mrkdwn", "text": text}]
+    if public_note:
+        elements.append({"type": "mrkdwn", "text": PUBLIC_NOTE})
+    return [{"type": "context", "elements": elements}]
 
 
 def clarify_blocks(a: Answer) -> list[dict]:
