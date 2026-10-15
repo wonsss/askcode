@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
     model_large: str = "claude-sonnet-5-5"
     model_small: str = "claude-haiku-5-5"
+    # 에이전트 effort (low|medium|high|xhigh|max). 비우면 모델 기본값: sonnet-5-5 high, haiku-5-5 medium
+    agent_effort_large: str | None = None
+    agent_effort_small: str | None = None
     agent_max_turns: int = 12
     agent_max_budget_usd: float = 0.5
 

@@ -25,6 +25,7 @@ class AgentRequest:
     max_turns: int = 12
     max_budget_usd: float | None = None
     model: str | None = None
+    effort: str | None = None  # low | medium | high | xhigh | max. None이면 모델 기본값
 
 
 @dataclass

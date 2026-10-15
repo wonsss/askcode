@@ -74,6 +74,7 @@ class ClaudeAgentRunner:
             model=request.model or self.model,
             max_turns=request.max_turns,
             max_budget_usd=request.max_budget_usd,
+            effort=request.effort,
             permission_mode="dontAsk",
             setting_sources=[],
             cwd=self._workdir,

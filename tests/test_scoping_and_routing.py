@@ -193,3 +193,12 @@ async def test_escalation_sums_tokens_and_handles_partial_text(store, tools, rep
     a = await svc.answer("의안 상세는?")
     row = store.execute("SELECT input_tokens, output_tokens FROM query_results WHERE query_id=?", (a.query_id,)).fetchone()
     assert runner.models == ["s", "L"] and a.body == "답" and tuple(row) == (30, 12)
+
+
+async def test_effort_follows_route_tier(store, tools, repo_cfg, repo_dir):
+    runner = ScopedRunner()
+    svc = AnswerService(store, repo_cfg, repo_dir, runner, tools, domain_map=DMAP, models={"small": "s", "large": "L"},
+                        efforts={"large": "medium"},
+                        scoper=FakeScoper(Scope(kind="multi_hop", domains=["bills"], confidence="high")))
+    await svc.answer("의안 상세에서 웹 메시지는?")
+    assert runner.calls[0].effort == "medium"

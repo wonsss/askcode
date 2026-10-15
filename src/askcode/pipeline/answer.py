@@ -92,7 +92,8 @@ class AnswerService:
     def __init__(self, store: Store, repo: RepoConfig, repo_path: Path, runner: AgentRunner, code_tools: CodeTools,
                  max_turns: int = 12, max_budget_usd: float | None = None, *, scoper: Scoper | None = None,
                  domain_map: DomainMap | None = None, doc_tools: DocTools | None = None,
-                 structure_tools: StructureTools | None = None, models: dict[str, str] | None = None):
+                 structure_tools: StructureTools | None = None, models: dict[str, str] | None = None,
+                 efforts: dict[str, str | None] | None = None):
         self.store = store
         self.repo = repo
         self.repo_path = repo_path
@@ -105,6 +106,7 @@ class AnswerService:
         self.doc_tools = doc_tools
         self.structure_tools = structure_tools
         self.models = models or {}
+        self.efforts = efforts or {}  # tier → effort, None이면 모델 기본값
 
     # ---------- 도구 ----------
     def _overview(self) -> str:
@@ -279,7 +281,7 @@ class AnswerService:
         prompt = build_question(question, scope.kind, scope.domains, scope.keywords, extra)
         resp = await self.runner.run(AgentRequest(
             prompt, system, self._tools(query_id, session), route.max_turns or self.max_turns, self.max_budget_usd,
-            model=self.models.get(route.tier),
+            model=self.models.get(route.tier), effort=self.efforts.get(route.tier),
         ))
         if route.name == "simple" and resp.error and (not resp.text.strip() or resp.error in LIMIT_ERRORS):
             # 소형 모델이 턴 한도 등으로 답을 못 내면 대형 에이전트로 한 번 올린다 (도구로 본 구간은 이어서 쓴다)
@@ -287,7 +289,7 @@ class AnswerService:
             route = Route("agent", "large", self.max_turns)
             resp = await self.runner.run(AgentRequest(
                 prompt, system, self._tools(query_id, session), route.max_turns, self.max_budget_usd,
-                model=self.models.get(route.tier),
+                model=self.models.get(route.tier), effort=self.efforts.get(route.tier),
             ))
             for f in ("cost_usd", "duration_ms", "input_tokens", "output_tokens", "cache_read_tokens",
                       "cache_write_tokens", "num_turns"):
