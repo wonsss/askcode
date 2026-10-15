@@ -19,7 +19,7 @@ def _rich(rt: list[dict]) -> str:
 
 def _slug(title: str, page_id: str) -> str:
     s = re.sub(r"[^\w가-힣-]+", "-", title).strip("-")[:60] or "page"
-    return f"notion/{s}-{page_id.replace('-', '')[:8]}.md"
+    return f"notion/{s}-{page_id.replace('-', '')[-8:]}.md"
 
 
 def block_to_md(block: dict) -> str | None:

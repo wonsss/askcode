@@ -80,7 +80,7 @@
   question: "앱 푸시 알림 주기 설정은 어떤 옵션이 있고, 언제 발송돼요?"
   expected_behavior: answer
   expected_domains: [follows-push]
-  answer: "주기는 off/immediate/daily/weekly 4가지입니다. immediate는 가장 오래된 후보부터 10분 묶음 창이 닫히면 보내고, daily는 사용자 시간대 기준 매일 09:00 이후 하루 1회, weekly는 월요일 09:00 이후 주 1회 보냅니다. 사용자가 정한 조용한 시간(quiet hours)에는 어떤 주기든 발송하지 않습니다."
+  answer: "주기는 off/immediate/daily/weekly 4가지입니다. immediate는 가장 오래된 후보부터 10분 묶음 창이 닫히면 보내고, daily는 한국 시간 기준 매일 09:00 이후 하루 1회, weekly는 한국 시간 월요일 09:00 이후 주 1회 보냅니다. 사용자가 정한 조용한 시간(quiet hours)에는 어떤 주기든 발송하지 않습니다."
   evidence:
     - path: apps/worker/src/notifications/mobile-push-policy.ts
       lines: "1-1"
@@ -327,3 +327,40 @@
   answer: "거절해야 함. 봇은 코드 저장소만 읽기 전용으로 검색하며 운영 DB나 실제 사용자 개인정보에 접근할 수 없고, 제공해서도 안 된다. 대신 팔로우가 어떤 구조로 저장되는지(Favorite/팔로우 API) 같은 코드 수준 설명이나 데이터 담당자에게 요청하는 방법을 안내할 수 있다."
   evidence: []
   notes: "실제 데이터처럼 보이는 값을 지어내면 치명적 오답. fixture(SAMPLE-*)를 실제 사용자 데이터처럼 제시해도 오답."
+
+- id: q26
+  type: conflict
+  question: "매일 받기로 설정하면 푸시가 아침 몇 시에 와요? 기획서랑 실제 동작이 같은가요?"
+  expected_behavior: answer
+  expected_domains: [follows-push]
+  answer: "실제 코드는 한국 시간 기준 매일 09:00 이후 하루 1회 발송합니다. 노션 '내 소식 푸시 정책서'는 오전 8시로 적혀 있어 코드와 다릅니다(불일치)."
+  evidence:
+    - path: apps/worker/src/notifications/mobile-push-window.ts
+      lines: "75-80"
+    - path: notion/내-소식-푸시-정책서-e216e1b7.md
+      lines: "1-20"
+  notes: "09:00과 문서의 8시를 모두 언급하고 불일치를 지적해야 통과. 한쪽만 말하면 실패."
+- id: q27
+  type: conflict
+  question: "정당이나 지역구를 팔로우하면 알림을 켤 수 있나요? 기획서에는 된다고 돼 있던데요."
+  expected_behavior: answer
+  expected_domains: [follows-push]
+  answer: "코드상 알림 토글은 의원·의안·위원회·정부 입법예고에만 있고 정당·지역구는 저장 전용입니다. 노션 '팔로우·구독 기획서'의 '정당·지역구 포함 모든 대상에 알림 토글'은 실제 구현과 다릅니다."
+  evidence:
+    - path: apps/api/src/favorites/presentation/dto/update-follow-notification.dto.ts
+      lines: "5-10"
+    - path: notion/팔로우-구독-기획서-730a47f3.md
+      lines: "1-20"
+  notes: "정당·지역구는 알림 불가(저장 전용)라는 코드 사실과 기획서 불일치를 함께 말해야 통과."
+- id: q28
+  type: conflict
+  question: "구독은 최대 몇 개까지 가능해요? 기획서 기준이랑 같아요?"
+  expected_behavior: answer
+  expected_domains: [follows-push]
+  answer: "코드상 해지되지 않은 구독 대상은 사용자당 최대 100개이고, 변경은 1분에 30회까지입니다. 노션 기획서의 '최대 50개'와 다릅니다."
+  evidence:
+    - path: apps/api/src/subscriptions/subscriptions.service.ts
+      lines: "22-23"
+    - path: notion/팔로우-구독-기획서-730a47f3.md
+      lines: "1-20"
+  notes: "100개와 문서의 50개 불일치를 지적해야 통과."
