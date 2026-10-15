@@ -337,7 +337,7 @@
   evidence:
     - path: apps/worker/src/notifications/mobile-push-window.ts
       lines: "75-80"
-    - path: notion/내-소식-푸시-정책서-e216e1b7.md
+    - path: notion/내-소식-푸시-정책서-57e9510c.md
       lines: "1-20"
   notes: "09:00과 문서의 8시를 모두 언급하고 불일치를 지적해야 통과. 한쪽만 말하면 실패."
 - id: q27
@@ -349,7 +349,7 @@
   evidence:
     - path: apps/api/src/favorites/presentation/dto/update-follow-notification.dto.ts
       lines: "5-10"
-    - path: notion/팔로우-구독-기획서-730a47f3.md
+    - path: notion/팔로우-구독-기획서-01006c02.md
       lines: "1-20"
   notes: "정당·지역구는 알림 불가(저장 전용)라는 코드 사실과 기획서 불일치를 함께 말해야 통과."
 - id: q28
@@ -361,6 +361,6 @@
   evidence:
     - path: apps/api/src/subscriptions/subscriptions.service.ts
       lines: "22-23"
-    - path: notion/팔로우-구독-기획서-730a47f3.md
+    - path: notion/팔로우-구독-기획서-01006c02.md
       lines: "1-20"
   notes: "100개와 문서의 50개 불일치를 지적해야 통과."
