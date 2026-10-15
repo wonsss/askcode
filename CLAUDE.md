@@ -8,6 +8,7 @@ AskCode: 기획자가 슬랙에서 질문하면 비공개 코드베이스(law-wa
 - `docs/implementation-plan.md` — 설계 결정과 구현 현황(0절)
 - `docs/demo-scenario.md` — 7분 데모 순서, 노션 문서의 의도적 불일치 3곳
 - `docs/deploy-vultr.md` — 배포
+- `docs/cost.md` — 경로별 비용 실측, 월 비용 추정, 모델·effort 판단
 
 ## 명령
 
@@ -18,7 +19,7 @@ uv run askcode ask "질문" [--domains follows-push]
 uv run askcode eval [--ids q01,q26] [--limit N]   # 골든 세트 28문항 → eval/results/
 uv run askcode serve             # 슬랙 봇 (Socket Mode)
 uv run askcode stats
-uv run pytest                    # 28개
+uv run pytest                    # 44개
 ```
 
 ## 구조 요약
@@ -42,8 +43,11 @@ uv run pytest                    # 28개
 
 ## 현재 상태 (2026-10-15)
 
-- 구현 완료, 테스트 28개 통과. **실제 Claude API·슬랙으로 실행한 측정은 아직 없다.**
-- `.env` 입력 완료: Claude 키, 슬랙 봇·앱 토큰, GitHub App(ID·설치 ID·`secrets/github-app.pem`). GitHub App으로 law-watch 클론·인덱싱 확인됨(`data/`, main@31bcf1e).
+- 테스트 44개 통과. 실제 Claude API·슬랙으로 실측 완료. 골든 세트 2차 평가 86%(24/28), 이후 노션 3문항(q26~q28) 통과. 단, 답변 문체를 바꾼 뒤 28문항 전체를 다시 돌리지는 않았다.
+- 비용은 SDK 보고값이 아니라 토큰 × 단가로 계산한다(`llm/pricing.py`). 경로별 실측과 월 비용 추정은 `docs/cost.md`.
+- **API 비용이 드는 작업(eval·ask)은 예상 금액을 먼저 사용자에게 말한다.** 전체 평가 1회 약 $0.85.
+- `.env` 입력 완료: Claude 키, 슬랙 봇·앱 토큰, GitHub App(ID·설치 ID·`secrets/github-app.pem`). GitHub App으로 law-watch 클론·인덱싱 확인됨(`data/`, main@31bcf1e). 확인 요청 채널(`ASKCODE_ESCALATION_CHANNEL`)도 설정됨.
 - 노션 데모 문서: 「AskCode 데모 — law-watch 기획 문서」(page id `594f6bc1093b83fb9cfe8154b27d9d2e`, 장원석님의 워크스페이스 › LawWatch)와 하위 8개 페이지. 봇 전용 연결 `AskCode`(API 토큰, 콘텐츠 읽기만)로 수집됨. 원래 문서(`3fa5aab5…`)는 다른 워크스페이스에 있어 옮겼고, 그때 페이지 ID가 바뀌었다.
-- 모델 이름 기본값 `claude-sonnet-5-5`(대형), `claude-haiku-5-5`(소형). `doctor --online`으로 사용 가능 여부 확인.
-- 알려진 점: 스코핑이 실패하면 범위 제한 없이 대형 모델 에이전트로 넘어가 비용이 커진다(실측 1건 $0.16·28초). 에이전트 SDK 하위 프로세스는 부모 환경변수를 물려받는다.
+- 모델: `claude-sonnet-5-5`(심층 탐색·판정), `claude-haiku-5-5`(스코핑·빠른 답). 소형 모델 호출은 thinking을 끈다(켜면 스코핑 JSON이 잘림). effort는 `ASKCODE_AGENT_EFFORT_LARGE/SMALL`로 바꿀 수 있고 비우면 모델 기본값.
+- 남은 실패: q11(스코핑이 가끔 되묻기로 분류), q14(웹 기본 페이지 크기 6건 누락).
+- 에이전트 SDK 하위 프로세스는 부모 환경변수를 물려받는다.
