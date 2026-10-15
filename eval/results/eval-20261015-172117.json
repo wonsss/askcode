@@ -1,0 +1,400 @@
+{
+  "summary": {
+    "items": 14,
+    "correct": "21% (3/14)",
+    "behavior": "100% (14/14)",
+    "scope_recall": "100% (14/14)",
+    "evidence_recall": "60%",
+    "avg_cost_usd": 0.0381,
+    "total_cost_usd": 0.5333,
+    "avg_duration_s": 21.9,
+    "avg_tool_calls": 11.1,
+    "high_confidence": 10
+  },
+  "results": [
+    {
+      "id": "q04",
+      "type": "simple",
+      "question": "의안 AI 요약은 최대 몇 글자까지 나오나요? 근거 문장은 몇 개까지 붙어요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "bill-ai"
+      ],
+      "evidence_recall": 0.0,
+      "correct": false,
+      "judge_reason": "요약 120자·근거 3개는 맞지만, 기대 답의 핵심인 계약 버전 9와 원자적 교체 사실을 빠뜨려 핵심 누락으로 실패.",
+      "confidence": "high",
+      "route": "simple",
+      "cost_usd": 0.004973415,
+      "duration_s": 19.4,
+      "tool_calls": 11,
+      "cited": [
+        "apps/api/src/bills/bill-ai/bill-ai-bundle.validator.ts",
+        "apps/api/src/bills/bill-ai/bill-ai-simple-bundle.ts",
+        "packages/contracts/src/bill-ai-classification.ts"
+      ],
+      "error": null
+    },
+    {
+      "id": "q09",
+      "type": "policy",
+      "question": "구독은 한 사람이 몇 개까지 할 수 있어요? 너무 자주 바꾸면 제한이 있나요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "follows-push"
+      ],
+      "evidence_recall": 1.0,
+      "correct": true,
+      "judge_reason": "100개 제한과 분당 30회(429) 제한, 해지 안 한 구독 기준, 동의 확인 필수 등 기대 답의 핵심 사실이 모두 맞게 담겨 있고 모순도 없습니다.",
+      "confidence": "high",
+      "route": "agent",
+      "cost_usd": 0.058723500000000005,
+      "duration_s": 19.3,
+      "tool_calls": 6,
+      "cited": [
+        "apps/api/src/subscriptions/subscriptions.controller.ts",
+        "apps/api/src/subscriptions/subscriptions.service.ts"
+      ],
+      "error": null
+    },
+    {
+      "id": "q10",
+      "type": "policy",
+      "question": "팔로우한 대상마다 알림을 켜고 끌 수 있나요? 정당이나 지역구도 알림이 와요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "follows-push"
+      ],
+      "evidence_recall": 0.3333333333333333,
+      "correct": false,
+      "judge_reason": "봇이 정당·지역구도 알림 대상이라고 답해 기대 답(정당·지역구는 저장 전용, 알림 불가)과 모순되며, 회의록 토글 없음 등 핵심을 빠뜨리거나 틀림.",
+      "confidence": "medium",
+      "route": "agent",
+      "cost_usd": 0.049156000000000005,
+      "duration_s": 23.1,
+      "tool_calls": 9,
+      "cited": [
+        "apps/mobile/src/features/follows/saved-targets.ts",
+        "apps/worker/src/notifications/mobile-push-v2-content.ts",
+        "packages/contracts/src/favorite.ts",
+        "packages/contracts/src/follow-updates.ts"
+      ],
+      "error": null
+    },
+    {
+      "id": "q11",
+      "type": "policy",
+      "question": "통합 검색은 어떤 식으로 동작해요? 결과 순서는 어떻게 정해지나요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "search-explore"
+      ],
+      "evidence_recall": 1.0,
+      "correct": false,
+      "judge_reason": "봇은 교차 순서([의원,법안,입법예고,회의])와 기본 20·최대 50, 빈 검색어 처리는 맞혔으나, 공백 제거 외 핵심인 공개 AI 요약·검증 동의어 범위는 언급했음에도 기대답과 달리 '이름·의안명' 중심 설명이며 limit 범위를 1~50으로 맞게 적었어도 '유형 간 관련도 점수 없음'은 맞음. 그러나 '결과 수 기본 20'과 '교차 순서'는 맞아 핵심 ",
+      "confidence": "high",
+      "route": "agent",
+      "cost_usd": 0.0711493,
+      "duration_s": 30.1,
+      "tool_calls": 14,
+      "cited": [
+        "apps/api/src/search/application/search.service.ts",
+        "apps/api/src/search/domain/search-result-order.ts",
+        "apps/api/src/search/infrastructure/bill-search.ts",
+        "apps/api/src/search/infrastructure/search.fixture-repository.ts",
+        "apps/api/src/search/infrastructure/search.prisma-repository.ts",
+        "apps/api/src/search/presentation/dto/search.dto.ts",
+        "apps/api/src/search/presentation/search.controller.ts"
+      ],
+      "error": null
+    },
+    {
+      "id": "q13",
+      "type": "screen_hybrid",
+      "question": "앱에서 정부 입법 쪽 화면들은 어떻게 열려요? 목록, 입법예고 상세, 정부 법률안 상세 각각 알려주세요.",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "government-legislation",
+        "mobile-hybrid"
+      ],
+      "evidence_recall": 1.0,
+      "correct": false,
+      "judge_reason": "목록·입법예고 상세는 맞지만, 정부 법률안 상세의 현재 presentation을 external로 확인하지 않고 불확실하다고 답해 핵심 사실(external, 목표 embedded)을 명확히 담지 못함.",
+      "confidence": "high",
+      "route": "simple",
+      "cost_usd": 0.004827595,
+      "duration_s": 20.0,
+      "tool_calls": 13,
+      "cited": [
+        "apps/mobile/app/legislation/government/index.tsx",
+        "apps/mobile/src/components/government-notices/government-notice-list-row.tsx",
+        "apps/mobile/src/components/home/home-record-rows.tsx",
+        "apps/mobile/src/navigation/public-route-manifest.test.mjs",
+        "apps/mobile/src/navigation/public-route-manifest.ts",
+        "docs/plans/mobile-webview-first-plan.md"
+      ],
+      "error": null
+    },
+    {
+      "id": "q14",
+      "type": "screen_hybrid",
+      "question": "의안 목록이 웹이랑 앱에서 다르게 동작하나요? 페이지 넘기는 방식이 같아요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "bills",
+        "mobile-hybrid"
+      ],
+      "evidence_recall": 0.6666666666666666,
+      "correct": false,
+      "judge_reason": "봇은 웹 페이지 방식과 앱 무한스크롤 구분은 맞췄으나, 핵심 수치인 웹 기본 페이지 크기 6건과 앱 20건 중 웹 기본값(6건)을 확인하지 못했다고 빠뜨렸고 앱 20건만 언급함.",
+      "confidence": "high",
+      "route": "agent",
+      "cost_usd": 0.068044835,
+      "duration_s": 39.8,
+      "tool_calls": 27,
+      "cited": [
+        "apps/mobile/app/bills/index.tsx",
+        "apps/mobile/src/features/bills/use-bill-list-screen.ts",
+        "apps/mobile/src/navigation/public-route-manifest.ts",
+        "apps/web/components/bills/bills-list.tsx",
+        "apps/web/hooks/use-bill-list.ts"
+      ],
+      "error": null
+    },
+    {
+      "id": "q15",
+      "type": "screen_hybrid",
+      "question": "앱의 의안 상세(웹뷰) 안에서 지방의회 관련 링크를 누르면 앱 안에서 열려요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "mobile-hybrid",
+        "bills",
+        "government-legislation"
+      ],
+      "evidence_recall": 0.5,
+      "correct": true,
+      "judge_reason": "봇은 앱 안에서 열리지 않고 외부로 열린다고 답해 기대 답의 핵심(외부 브라우저)과 일치하며, 웹뷰 내 열림이라는 오답 조건에 해당하지 않습니다.",
+      "confidence": "high",
+      "route": "agent",
+      "cost_usd": 0.03200711,
+      "duration_s": 31.7,
+      "tool_calls": 24,
+      "cited": [
+        "apps/mobile/src/navigation/public-route-manifest.test.mjs",
+        "apps/mobile/src/navigation/public-route-manifest.ts"
+      ],
+      "error": null
+    },
+    {
+      "id": "q16",
+      "type": "screen_hybrid",
+      "question": "앱에서 로그인, 이용약관, 개인정보처리방침 화면은 네이티브예요 웹이에요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "mobile-hybrid",
+        "auth-account"
+      ],
+      "evidence_recall": 0.5,
+      "correct": true,
+      "judge_reason": "약관·개인정보처리방침이 외부 브라우저로 열린다는 필수 사항과 로그인 인증이 시스템 브라우저→딥링크 복귀인 점, 웹뷰 내 로그인 링크의 네이티브 /account 예외를 모두 담았다.",
+      "confidence": "medium",
+      "route": "simple",
+      "cost_usd": 0.00404575,
+      "duration_s": 15.8,
+      "tool_calls": 12,
+      "cited": [
+        "apps/mobile/src/auth/use-social-auth.ts",
+        "apps/mobile/src/web.ts"
+      ],
+      "error": null
+    },
+    {
+      "id": "q17",
+      "type": "multi_hop",
+      "question": "앱 웹뷰 상세 화면에서 팔로우 버튼을 누르면 실제로 어떤 흐름으로 저장돼요? 로그인 안 했으면요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "follows-push",
+        "mobile-hybrid",
+        "auth-account"
+      ],
+      "evidence_recall": 0.6666666666666666,
+      "correct": false,
+      "judge_reason": "기대 답의 핵심인 웹→앱 메시지명 'law-watch:follow-intent'가 봇 답변에 없고, 앱이 메시지/출처를 검증하는 단계와 '계정 연결 확인' 알림 분기도 빠졌으며, 비로그인 시 로그인 버튼→/account 이동은 있으나 전체 흐름이 기대 답과 다름.",
+      "confidence": "high",
+      "route": "agent",
+      "cost_usd": 0.04734610000000001,
+      "duration_s": 21.9,
+      "tool_calls": 8,
+      "cited": [
+        "apps/api/src/favorites/presentation/follows.controller.ts",
+        "apps/mobile/src/auth/follow-sync.ts",
+        "apps/mobile/src/auth/native-follow-state.ts",
+        "apps/mobile/src/auth/use-native-follow-intent.ts",
+        "apps/web/lib/webview-bridge.ts"
+      ],
+      "error": null
+    },
+    {
+      "id": "q18",
+      "type": "multi_hop",
+      "question": "앱 탐색 탭에서 검색하면 어떤 API를 거쳐서 결과가 나와요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "search-explore",
+        "mobile-hybrid"
+      ],
+      "evidence_recall": 1.0,
+      "correct": false,
+      "judge_reason": "봇 답변이 탐색 훅→api-client→SearchController→SearchService 체인을 짚지만 'api.search 한 번', 'q만 전송' 등은 맞는 반면, 검색어 공백제거·200자 제한 조건 및 SearchService.trim 저장소 조회 흐름을 명시하지 않아 핵심 누락.",
+      "confidence": "medium",
+      "route": "agent",
+      "cost_usd": 0.0306665,
+      "duration_s": 16.9,
+      "tool_calls": 6,
+      "cited": [
+        "apps/api/src/search/presentation/search.controller.ts",
+        "apps/mobile/src/features/explore/use-explore-search.ts",
+        "packages/api-client/src/endpoints.ts"
+      ],
+      "error": null
+    },
+    {
+      "id": "q19",
+      "type": "multi_hop",
+      "question": "앱 팔로우 목록에서 대상별 알림을 끄면 서버까지 어떻게 반영돼요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "follows-push",
+        "mobile-hybrid"
+      ],
+      "evidence_recall": 0.6666666666666666,
+      "correct": false,
+      "judge_reason": "기대 답의 핵심인 FollowsController/SessionAuthGuard 경로와 404 반환을 언급했지만, 채점 메모의 PATCH 경로와 로그인 필요는 있으나 봇 답변에 'FavoritesService' 저장 경로·앱 동기화 흐름은 있어도 '본인 소유 아니면 404'와 대상 종류 구분이 맞아 통과 가능하나, 기대 답의 '입법예고' 대상 범위와 'up",
+      "confidence": "medium",
+      "route": "agent",
+      "cost_usd": 0.0431355,
+      "duration_s": 19.1,
+      "tool_calls": 8,
+      "cited": [
+        "apps/api/src/favorites/infrastructure/favorites.prisma-repository.ts",
+        "apps/api/src/favorites/presentation/dto/update-follow-notification.dto.ts",
+        "apps/api/src/favorites/presentation/follows.controller.ts",
+        "apps/mobile/src/auth/follow-sync.ts",
+        "apps/worker/src/notifications/mobile-push-v2-content.ts"
+      ],
+      "error": null
+    },
+    {
+      "id": "q26",
+      "type": "conflict",
+      "question": "매일 받기로 설정하면 푸시가 아침 몇 시에 와요? 기획서랑 실제 동작이 같은가요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "follows-push"
+      ],
+      "evidence_recall": 0.5,
+      "correct": false,
+      "judge_reason": "봇은 코드 기준 09:00만 답하고 기획서가 8시로 적혀 불일치한다는 점을 지적하지 않아, 채점 메모의 두 시각 언급과 불일치 지적 조건을 충족하지 못함.",
+      "confidence": "high",
+      "route": "agent",
+      "cost_usd": 0.033856699999999997,
+      "duration_s": 14.1,
+      "tool_calls": 4,
+      "cited": [
+        "apps/worker/src/notifications/mobile-push-window.ts",
+        "docs/guides/mobile-push-rollout.md",
+        "docs/plans/my-news-push-policy.md"
+      ],
+      "error": null
+    },
+    {
+      "id": "q27",
+      "type": "conflict",
+      "question": "정당이나 지역구를 팔로우하면 알림을 켤 수 있나요? 기획서에는 된다고 돼 있던데요.",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "follows-push",
+        "committees-parties-districts"
+      ],
+      "evidence_recall": 0.0,
+      "correct": false,
+      "judge_reason": "봇은 정당·지역구 알림 가능성을 열어두고 기획서 불일치를 확인 못 했다고 해 핵심 사실(알림 토글 불가, 저장 전용)과 모순·누락; 기대 답과 어긋남.",
+      "confidence": "high",
+      "route": "agent",
+      "cost_usd": 0.049097800000000004,
+      "duration_s": 19.6,
+      "tool_calls": 7,
+      "cited": [
+        "apps/api/src/favorites/infrastructure/favorites.prisma-repository.ts",
+        "apps/api/src/favorites/presentation/dto/create-favorite.dto.ts",
+        "docs/plans/my-news-push-policy.md"
+      ],
+      "error": null
+    },
+    {
+      "id": "q28",
+      "type": "conflict",
+      "question": "구독은 최대 몇 개까지 가능해요? 기획서 기준이랑 같아요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "follows-push"
+      ],
+      "evidence_recall": 0.5,
+      "correct": false,
+      "judge_reason": "봇은 구독 상한 100개가 기획서와 같다고 했지만, 기대 답의 핵심인 노션 기획서의 '최대 50개'와의 불일치를 지적하지 못했고 해당 기획서를 찾지 못했다고 함.",
+      "confidence": "high",
+      "route": "agent",
+      "cost_usd": 0.0362863,
+      "duration_s": 15.4,
+      "tool_calls": 6,
+      "cited": [
+        "apps/api/src/subscriptions/subscriptions.service.ts",
+        "docs/plans/my-news-follow-updates.md"
+      ],
+      "error": null
+    }
+  ]
+}

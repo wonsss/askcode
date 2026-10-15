@@ -1,0 +1,94 @@
+{
+  "summary": {
+    "items": 3,
+    "correct": "33% (1/3)",
+    "behavior": "100% (3/3)",
+    "scope_recall": "67% (2/3)",
+    "evidence_recall": "89%",
+    "avg_cost_usd": 0.0285,
+    "total_cost_usd": 0.0856,
+    "avg_duration_s": 17.0,
+    "avg_tool_calls": 7.3,
+    "high_confidence": 2
+  },
+  "results": [
+    {
+      "id": "q02",
+      "type": "simple",
+      "question": "새로 발의된 법안은 얼마나 자주 수집돼서 서비스에 반영되나요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "ingestion",
+        "bills"
+      ],
+      "evidence_recall": 1.0,
+      "correct": true,
+      "judge_reason": "봇 답변이 기대 답의 핵심인 '6시간마다(00·06·12·18시, 한국시간)'와 22대 전체 목록을 다시 훑어 신규 발견과 상태 갱신을 함께 한다는 점을 정확히 담았고, 표결 동기화와 혼동하지도 않았다.",
+      "confidence": "high",
+      "route": "simple",
+      "cost_usd": 0.003779335,
+      "duration_s": 15.2,
+      "tool_calls": 7,
+      "cited": [
+        "apps/worker/src/scheduling/schedule-config.ts",
+        "packages/contracts/src/schedule.ts"
+      ],
+      "error": null
+    },
+    {
+      "id": "q09",
+      "type": "policy",
+      "question": "구독은 한 사람이 몇 개까지 할 수 있어요? 너무 자주 바꾸면 제한이 있나요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": false,
+      "scope_domains": [
+        "follows-push"
+      ],
+      "evidence_recall": 1.0,
+      "correct": false,
+      "judge_reason": "봇 답변은 100개와 분당 30회는 맞혔지만, 기대 답의 필수 사실인 구독 시 동의 확인(consentConfirmed) 필수 조건을 빠뜨렸다.",
+      "confidence": "high",
+      "route": "agent",
+      "cost_usd": 0.039100300000000004,
+      "duration_s": 17.0,
+      "tool_calls": 6,
+      "cited": [
+        "apps/api/src/subscriptions/subscriptions.service.ts"
+      ],
+      "error": null
+    },
+    {
+      "id": "q19",
+      "type": "multi_hop",
+      "question": "앱 팔로우 목록에서 대상별 알림을 끄면 서버까지 어떻게 반영돼요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "follows-push",
+        "mobile-hybrid"
+      ],
+      "evidence_recall": 0.6666666666666666,
+      "correct": false,
+      "judge_reason": "",
+      "confidence": "medium",
+      "route": "agent",
+      "cost_usd": 0.0427342,
+      "duration_s": 18.8,
+      "tool_calls": 9,
+      "cited": [
+        "apps/api/src/favorites/infrastructure/favorites.prisma-repository.ts",
+        "apps/api/src/favorites/presentation/follows.controller.ts",
+        "apps/mobile/src/auth/follow-sync.ts",
+        "apps/mobile/src/bookmarks.ts"
+      ],
+      "error": null
+    }
+  ]
+}

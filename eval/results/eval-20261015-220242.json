@@ -1,0 +1,95 @@
+{
+  "summary": {
+    "items": 3,
+    "correct": "33% (1/3)",
+    "behavior": "100% (3/3)",
+    "scope_recall": "100% (3/3)",
+    "evidence_recall": "50%",
+    "avg_cost_usd": 0.0488,
+    "total_cost_usd": 0.1465,
+    "avg_duration_s": 16.5,
+    "avg_tool_calls": 4.0,
+    "high_confidence": 2
+  },
+  "results": [
+    {
+      "id": "q26",
+      "type": "conflict",
+      "question": "매일 받기로 설정하면 푸시가 아침 몇 시에 와요? 기획서랑 실제 동작이 같은가요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "follows-push"
+      ],
+      "evidence_recall": 0.0,
+      "correct": false,
+      "judge_reason": "코드의 09:00은 말했지만 노션 정책서의 오전 8시 표기를 언급하지 않았고, 기획서와 코드가 대체로 같다고 하여 불일치를 지적하지 못했다.",
+      "confidence": "high",
+      "route": "agent",
+      "cost_usd": 0.060396124999999995,
+      "duration_s": 19.2,
+      "tool_calls": 4,
+      "cited": [
+        "apps/worker/src/notifications/mobile-push-policy.ts",
+        "apps/worker/src/notifications/mobile-push-window.spec.ts",
+        "docs/guides/mobile-push-rollout.md",
+        "docs/plans/my-news-push-policy.md"
+      ],
+      "error": null
+    },
+    {
+      "id": "q27",
+      "type": "conflict",
+      "question": "정당이나 지역구를 팔로우하면 알림을 켤 수 있나요? 기획서에는 된다고 돼 있던데요.",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "follows-push",
+        "committees-parties-districts"
+      ],
+      "evidence_recall": 0.5,
+      "correct": false,
+      "judge_reason": "정당·지역구는 알림 토글이 없는 저장 전용이라는 핵심과 어긋나며, 사용자가 켤 수 있어 보인다고 답해 기획서와의 불일치도 짚지 않았다.",
+      "confidence": "medium",
+      "route": "agent",
+      "cost_usd": 0.061232825,
+      "duration_s": 16.7,
+      "tool_calls": 5,
+      "cited": [
+        "apps/api/src/favorites/infrastructure/favorites.prisma-repository.ts",
+        "apps/worker/src/notifications/mobile-push-fanout.service.ts",
+        "notion/팔로우-구독-기획서-01006c02.md"
+      ],
+      "error": null
+    },
+    {
+      "id": "q28",
+      "type": "conflict",
+      "question": "구독은 최대 몇 개까지 가능해요? 기획서 기준이랑 같아요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "follows-push"
+      ],
+      "evidence_recall": 1.0,
+      "correct": true,
+      "judge_reason": "코드 100개와 기획서 50개의 불일치를 정확히 지적했고 해지 구독 제외 조건도 맞다. 변경 횟수(분당 30회)는 확인 못했다고 했으나 핵심 메모 조건은 충족한다.",
+      "confidence": "high",
+      "route": "agent",
+      "cost_usd": 0.024830190000000002,
+      "duration_s": 13.5,
+      "tool_calls": 3,
+      "cited": [
+        "apps/api/src/subscriptions/subscriptions.service.ts",
+        "notion/팔로우-구독-기획서-01006c02.md"
+      ],
+      "error": null
+    }
+  ]
+}

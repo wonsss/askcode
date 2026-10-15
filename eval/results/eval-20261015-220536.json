@@ -1,0 +1,71 @@
+{
+  "summary": {
+    "items": 2,
+    "correct": "100% (2/2)",
+    "behavior": "100% (2/2)",
+    "scope_recall": "100% (2/2)",
+    "evidence_recall": "100%",
+    "avg_cost_usd": 0.0721,
+    "total_cost_usd": 0.1442,
+    "avg_duration_s": 19.2,
+    "avg_tool_calls": 7.0,
+    "high_confidence": 2
+  },
+  "results": [
+    {
+      "id": "q26",
+      "type": "conflict",
+      "question": "매일 받기로 설정하면 푸시가 아침 몇 시에 와요? 기획서랑 실제 동작이 같은가요?",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "follows-push"
+      ],
+      "evidence_recall": 1.0,
+      "correct": true,
+      "judge_reason": "실제 동작 오전 9시(한국 시간, 하루 1회)와 기획서의 오전 8시를 모두 언급하고 불일치를 명확히 지적했다.",
+      "confidence": "high",
+      "route": "agent",
+      "cost_usd": 0.06719259000000001,
+      "duration_s": 16.8,
+      "tool_calls": 6,
+      "cited": [
+        "apps/worker/src/notifications/mobile-push-policy.ts",
+        "apps/worker/src/notifications/mobile-push-window.ts",
+        "notion/내-소식-푸시-정책서-57e9510c.md"
+      ],
+      "error": null
+    },
+    {
+      "id": "q27",
+      "type": "conflict",
+      "question": "정당이나 지역구를 팔로우하면 알림을 켤 수 있나요? 기획서에는 된다고 돼 있던데요.",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [
+        "follows-push",
+        "committees-parties-districts"
+      ],
+      "evidence_recall": 1.0,
+      "correct": true,
+      "judge_reason": "정당·지역구는 저장 전용이라 알림 토글이 불가하고(의원·의안·입법예고·위원회만 가능), 기획서의 '모든 대상 알림 토글'과 불일치한다는 핵심을 모두 담았다.",
+      "confidence": "high",
+      "route": "agent",
+      "cost_usd": 0.07704579,
+      "duration_s": 21.6,
+      "tool_calls": 8,
+      "cited": [
+        "apps/api/src/favorites/presentation/dto/create-favorite.dto.ts",
+        "apps/api/src/favorites/presentation/dto/update-follow-notification.dto.ts",
+        "apps/api/src/favorites/presentation/follows.controller.ts",
+        "apps/worker/src/notifications/mobile-push-v2-content.ts",
+        "notion/팔로우-구독-기획서-01006c02.md"
+      ],
+      "error": null
+    }
+  ]
+}
