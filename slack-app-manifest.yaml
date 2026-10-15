@@ -1,0 +1,35 @@
+# api.slack.com/apps → Create New App → From a manifest 에 붙여 넣기
+display_information:
+  name: AskCode
+  description: 코드와 기획 문서를 근거로 답하는 기획자용 질문 봇
+  background_color: "#1f2937"
+features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: AskCode
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read   # 채널에서 @AskCode 멘션 받기
+      - chat:write          # 답변 쓰기·갱신
+      - im:history          # DM 질문 받기
+      - im:read
+      - im:write
+      - files:read          # 스크린샷 역추적
+      - channels:history    # 소스 채널 읽기 (선택 기능)
+      - channels:read
+      - users:read          # 소스 채널 작성자 이름 표시
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.im
+  interactivity:
+    is_enabled: true
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

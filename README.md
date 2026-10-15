@@ -44,7 +44,8 @@ uv run pytest
 
 ## 슬랙 앱 설정
 
-1. api.slack.com에서 앱 생성 → **Socket Mode** 켜기 → App-Level Token(`connections:write`) → `ASKCODE_SLACK_APP_TOKEN`
+0. 가장 빠른 방법: api.slack.com/apps → Create New App → **From a manifest** → `slack-app-manifest.yaml` 붙여 넣기 (아래 2~4단계가 자동 설정됨)
+1. 앱 생성 → **Socket Mode** 켜기 → App-Level Token(`connections:write`) → `ASKCODE_SLACK_APP_TOKEN`
 2. Bot Token Scopes
    - 기본: `app_mentions:read`, `chat:write`, `im:history`, `im:read`, `im:write`
    - 스크린샷 역추적: `files:read`
