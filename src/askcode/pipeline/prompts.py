@@ -80,3 +80,38 @@ def build_question(question: str, kind: str, domains: list[str], keywords: list[
         question=question, kind=kind, domains=", ".join(domains) or "레포 전체",
         keywords=", ".join(keywords) or "-", extra=extra,
     )
+
+
+WIREFRAME_TEMPLATE = """\
+{question}
+
+---
+[와이어프레임 요청 — 시스템이 붙인 메모]
+- 참고할 도메인: {domains}
+- 검색 힌트: {keywords}
+{extra}
+이 요청은 질문 답변이 아니라 저충실도 와이어프레임 생성입니다. 시스템 프롬프트의 답변 형식(600자, 식별자 금지) 대신 아래를 따릅니다.
+
+## 작업 순서
+1. 도구로 비슷한 기존 화면을 2~4곳 확인해 화면 관례를 파악합니다: 하단 탭 구성, 헤더, 목록 카드, 주요 버튼 위치, 네이티브/웹뷰 여부. 도구 호출은 10회 이내로 합니다.
+2. 기존 관례를 따르는 새 화면을 설계합니다. 정해지지 않은 기획 결정은 임의로 확정하지 말고 "가정"으로 적습니다.
+
+## 출력 (이 순서 그대로)
+(a) 기획자용 설명 — 첫 줄 **굵은 한 문장 요약**, 이어서 화면 목록과 각 화면의 핵심 요소(목록 3~6개), 기존 화면에서 따온 패턴, "가정:" 한 줄씩. 코드 식별자는 쓰지 않습니다.
+(b) ```html 코드 블록 하나 — 완결된 HTML 문서
+(c) "근거:" 목록 — 참고한 기존 화면의 코드 구간 (도구로 실제 본 구간만)
+
+## HTML 규칙
+- 저충실도: 회색조(#111, #555, #999, #ddd, #f3f3f3, #fff)와 시스템 글꼴만. 아이콘·이미지는 회색 박스와 글자 라벨로 대신합니다.
+- 앱 화면이면 화면마다 390×844 프레임을 가로로 나란히(flex-wrap) 놓고, 웹 화면이면 1280px 폭 프레임 하나로 그립니다.
+- 각 프레임 위에 화면 이름을 쓰고, 주요 요소 옆에 번호(①②③)를 달아 프레임 아래에 번호별 설명을 씁니다.
+- 내용은 "게시글 제목", "작성자" 같은 자리표시자만 씁니다. 실제 사용자 정보·비밀값은 쓰지 않습니다.
+- <script>, 외부 이미지·글꼴·CSS·링크, 이벤트 속성(onclick 등)은 쓰지 않습니다. 스타일은 <style> 하나에 둡니다. (어차피 시스템이 제거합니다)
+- 150~400줄 정도로 만듭니다.
+"""
+
+
+def build_wireframe_question(question: str, domains: list[str], keywords: list[str], extra: str = "") -> str:
+    return WIREFRAME_TEMPLATE.format(
+        question=question, domains=", ".join(domains) or "레포 전체", keywords=", ".join(keywords) or "-", extra=extra,
+    )

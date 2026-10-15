@@ -16,8 +16,9 @@ from pathlib import Path
 from askcode.agent.base import AgentRequest, AgentRunner, ToolSpec
 from askcode.config import RepoConfig
 from askcode.llm.pricing import estimate_cost
-from askcode.pipeline.prompts import build_question, build_system_prompt
+from askcode.pipeline.prompts import build_question, build_system_prompt, build_wireframe_question
 from askcode.pipeline.scoping import DomainMap, LLMUnavailable, Route, Scope, Scoper, route_for
+from askcode.pipeline.wireframe import extract_html, sanitize_html, wireframe_filename
 from askcode.store.db import QueryResult, Store
 from askcode.tools.code_tools import CodeTools, ToolSession
 from askcode.tools.doc_tools import DocTools
@@ -31,6 +32,11 @@ REFUSE_TEXT = (
     "이 질문은 AskCode가 답할 수 없는 범위예요. AskCode는 코드와 기획 문서만 읽으며, "
     "실제 사용자 정보·운영 데이터·비밀값에는 접근하지 않습니다. 필요한 경우 담당 부서의 정식 절차로 요청해 주세요."
 )
+UNSUPPORTED_TEXT = (
+    "이 요청은 AskCode가 하지 않는 작업이에요. AskCode는 코드·기획 문서를 읽고 답하며, 새 화면의 와이어프레임을 "
+    "만들 수 있어요. 코드 수정·배포·문서 작성은 하지 않습니다."
+)
+WIREFRAME_MISSING = "와이어프레임 HTML을 만들지 못했어요. 화면을 하나로 좁혀 다시 요청해 주세요. (예: \"커뮤니티 글 목록 화면 와이어프레임\")"
 LIMIT_TEXT = ("질문 하나에 쓸 수 있는 탐색 한도(비용·횟수)에 도달해 답을 끝맺지 못했어요. "
               "질문을 더 좁혀서 다시 물어봐 주세요. (예: 화면 하나, 조건 하나)")
 LIMIT_ERRORS = ("error_max_budget_usd", "error_max_turns")
@@ -67,6 +73,7 @@ class Answer:
     config_dependent: bool = False
     tool_calls: int = 0
     domain_names: list[str] = field(default_factory=list)  # 슬랙 표시용 도메인 이름
+    attachment: tuple[str, str] | None = None  # (파일 이름, 정제된 HTML) — 와이어프레임
 
 
 def _split_evidence(text: str) -> tuple[str, str]:
@@ -231,7 +238,7 @@ class AnswerService:
             scope = Scope(kind="multi_hop", domains=forced_domains, confidence="high", forced=True, reason="사용자가 범위 선택")
             if self.scoper:
                 s2, comp = await self.scoper.scope(question)
-                scope.kind, scope.keywords, scope_cost = s2.kind if s2.kind not in ("broad", "out_of_scope") else "multi_hop", s2.keywords, self._small_cost(comp)
+                scope.kind, scope.keywords, scope_cost = s2.kind if s2.kind not in ("broad", "out_of_scope", "unsupported") else "multi_hop", s2.keywords, self._small_cost(comp)
         elif self.scoper:
             scope, comp = await self.scoper.scope(question)
             scope_cost = self._small_cost(comp)
@@ -257,7 +264,7 @@ class AnswerService:
         # 2) 거절·되묻기는 에이전트 없이 끝낸다
         if route.name in ("refuse", "clarify"):
             if route.name == "refuse":
-                body, options = REFUSE_TEXT, []
+                body, options = (UNSUPPORTED_TEXT if scope.kind == "unsupported" else REFUSE_TEXT), []
             else:
                 ids = self.domain_map.clarify_options(scope, question) if self.domain_map else []
                 options = [(d.id, d.name) for d in (self.domain_map.get(i) for i in ids) if d] if self.domain_map else []
@@ -278,7 +285,10 @@ class AnswerService:
             extra += f"- 용어 힌트: {hints}\n"
         if extra_context:
             extra += f"- 첨부 맥락: {extra_context}\n"
-        prompt = build_question(question, scope.kind, scope.domains, scope.keywords, extra)
+        if route.name == "wireframe":
+            prompt = build_wireframe_question(question, scope.domains, scope.keywords, extra)
+        else:
+            prompt = build_question(question, scope.kind, scope.domains, scope.keywords, extra)
         resp = await self.runner.run(AgentRequest(
             prompt, system, self._tools(query_id, session), route.max_turns or self.max_turns, self.max_budget_usd,
             model=self.models.get(route.tier), effort=self.efforts.get(route.tier),
@@ -298,12 +308,21 @@ class AnswerService:
             scope.reason += f" · 단순 경로 실패({first.error})로 에이전트 재시도"
 
         # 4) 인용 검증과 확신도
-        body, evidence = _split_evidence(resp.text)
+        attachment = None
+        text = resp.text
+        if route.name == "wireframe":
+            raw_html, text = extract_html(resp.text)
+            if raw_html:
+                attachment = (wireframe_filename(question, query_id), sanitize_html(raw_html))
+        body, evidence = _split_evidence(text)
         verified, unverified = self._verify(query_id, evidence or resp.text, session, commit)
         has_code = any(c.source == "code" for c in verified)
         if resp.error in LIMIT_ERRORS:
             # 한도로 끊기면 마지막 텍스트가 중간 독백("이제 X를 확인하겠습니다")일 수 있어 답변으로 쓰지 않는다
             confidence, body, verified = "low", LIMIT_TEXT, []
+        elif route.name == "wireframe" and not attachment:
+            confidence = "low"
+            body = (body + "\n\n" if body else "") + WIREFRAME_MISSING
         elif resp.error and not body:
             confidence = "low"
             body = "답변을 만들지 못했습니다. 잠시 후 다시 시도하거나 질문 범위를 좁혀 주세요."
@@ -327,4 +346,5 @@ class AnswerService:
         return Answer(query_id, body, verified, confidence, commit, status="answer", route=route.name, scope=scope,
                       cost_usd=total_cost, duration_ms=resp.duration_ms, error=resp.error, unverified=unverified,
                       config_dependent=bool(cited_paths & session.config_dependent), tool_calls=len(resp.tool_calls),
-                      domain_names=[d.name for d in (self.domain_map.get(i) for i in scope.domains) if d] if self.domain_map else [])
+                      domain_names=[d.name for d in (self.domain_map.get(i) for i in scope.domains) if d] if self.domain_map else [],
+                      attachment=attachment)

@@ -47,6 +47,22 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
         texts, desc, _ = await extract_screen(llm, r.content, img["mimetype"])
         return screenshot_context(texts, desc) if texts else ""
 
+    async def deliver(client, channel: str, ts: str, thread_ts: str, answer) -> None:
+        """답변 메시지를 갱신하고, 와이어프레임이면 HTML 파일을 스레드에 올린다."""
+        note = None
+        if answer.attachment:
+            filename, content = answer.attachment
+            try:
+                await client.files_upload_v2(channel=channel, thread_ts=thread_ts, filename=filename, content=content,
+                                             title=filename.removesuffix(".html"))
+                note = "🖼 와이어프레임 HTML 파일을 이 스레드에 올렸어요. 내려받아 브라우저로 열어 보세요."
+            except Exception as exc:
+                log.warning("wireframe upload failed: %s", exc)
+                missing = "missing_scope" in str(exc)
+                note = ("⚠️ 파일 업로드 권한(files:write)이 없어 와이어프레임을 올리지 못했어요. 슬랙 앱을 다시 설치해 주세요."
+                        if missing else "⚠️ 와이어프레임 파일을 올리지 못했어요. 잠시 후 다시 시도해 주세요.")
+        await client.chat_update(channel=channel, ts=ts, text=fallback_text(answer), blocks=answer_blocks(answer, note=note))
+
     async def handle_question(client, channel: str, user: str, text: str, thread_ts: str, files: list[dict]) -> None:
         question = clean_question(text)
         has_image = any(f.get("mimetype") in ALLOWED_TYPES for f in files or [])
@@ -62,8 +78,7 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
             async with inflight:
                 answer = await service.answer(question or DEFAULT_SCREEN_QUESTION, source="slack", user_id=user,
                                               channel=channel, thread_ts=thread_ts, extra_context=extra)
-            await client.chat_update(channel=channel, ts=placeholder["ts"], text=fallback_text(answer),
-                                     blocks=answer_blocks(answer))
+            await deliver(client, channel, placeholder["ts"], thread_ts, answer)
         except Exception:
             log.exception("question failed")
             await client.chat_update(channel=channel, ts=placeholder["ts"],
@@ -96,7 +111,7 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
         async with inflight:
             answer = await service.answer(q["question"], source="slack", user_id=body["user"]["id"], channel=q["channel"],
                                           thread_ts=q["thread_ts"], forced_domains=[] if domain == "*" else [domain])
-        await client.chat_update(channel=channel, ts=ts, text=fallback_text(answer), blocks=answer_blocks(answer))
+        await deliver(client, channel, ts, body["message"].get("thread_ts") or ts, answer)
 
     async def _thread(body) -> tuple[str, str]:
         msg = body["message"]

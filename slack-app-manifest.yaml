@@ -20,6 +20,7 @@ oauth_config:
       - im:read
       - im:write
       - files:read          # 스크린샷 역추적
+      - files:write         # 와이어프레임 HTML 파일을 스레드에 올리기 (봇이 만든 파일만)
       - channels:history    # 소스 채널 읽기 (선택 기능)
       - channels:read
       - users:read          # 소스 채널 작성자 이름 표시

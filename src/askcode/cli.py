@@ -58,6 +58,14 @@ def cmd_ask(question: str, domains: str | None) -> None:
         print(f"  ✅ [{x.source}] {x.path}:{x.start}-{x.end} {x.note}")
     for x in a.unverified:
         print(f"  ⚠️ {x.path}:{x.start}-{x.end} ({x.reason})")
+    if a.attachment:
+        filename, content = a.attachment
+        out = Path(c.settings.data_dir) / "wireframes" / filename
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(content, encoding="utf-8")
+        print(f"\n🖼 와이어프레임: {out}")
+    elif a.route == "wireframe":
+        print("\n⚠️ 와이어프레임 HTML이 없습니다")
     if a.config_dependent:
         print("\n⚙ 일부 값은 설정·환경값에 따라 달라질 수 있음")
     if a.error:

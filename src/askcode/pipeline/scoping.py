@@ -29,7 +29,8 @@ def is_fatal_api_error(exc: Exception) -> bool:
     return isinstance(exc, anthropic.BadRequestError) and "credit balance" in str(exc).lower()
 
 
-KINDS = ("simple", "policy", "screen_hybrid", "multi_hop", "decision", "broad", "out_of_scope")
+KINDS = ("simple", "policy", "screen_hybrid", "multi_hop", "decision", "broad", "wireframe", "unsupported",
+         "out_of_scope")
 
 
 @dataclass(frozen=True)
@@ -106,7 +107,7 @@ class Scope:
 SCOPE_SYSTEM = """\
 당신은 사내 코드 질의응답 봇의 라우터입니다. 기획자의 질문을 보고 아래 JSON만 출력합니다(설명 금지).
 
-{{"kind": "simple|policy|screen_hybrid|multi_hop|decision|broad|out_of_scope",
+{{"kind": "simple|policy|screen_hybrid|multi_hop|decision|broad|wireframe|unsupported|out_of_scope",
  "domains": ["도메인 id", ...],          // 관련 도메인 1~3개
  "confidence": "high|medium|low",        // 도메인 판단 확신도
  "clarify_question": "되물을 질문 또는 null",
@@ -121,6 +122,8 @@ SCOPE_SYSTEM = """\
 - multi_hop: 화면 → API → 서버 로직처럼 여러 레이어를 따라가야 하는 질문
 - decision: 왜 그렇게 결정했는지, 배경·미채택안 (문서 근거)
 - broad: 범위가 너무 넓어 한 번에 답하면 부정확한 질문 (예: "알림 로직 알려줘", "결제 로직 전부")
+- wireframe: 새 기능·화면의 와이어프레임·화면 초안·목업을 만들어 달라는 요청. domains에는 참고할 기존 화면의 도메인을 넣는다
+- unsupported: 코드 수정·PR·배포·문서 작성·번역처럼 AskCode가 하지 않는 작업 요청 (와이어프레임은 제외)
 - out_of_scope: 실제 사용자 개인정보·운영 DB 데이터·비밀값 요청, 코드베이스와 무관한 질문
 
 broad이면 탐색하지 말고 clarify_question과 options를 채웁니다.
@@ -155,10 +158,14 @@ class Route:
 
 
 def route_for(scope: Scope) -> Route:
+    if scope.forced and scope.kind == "wireframe":
+        return Route("wireframe", "large", 12)
     if scope.forced:
         return Route("agent", "large", 12) if scope.kind in ("multi_hop", "decision", "broad") else Route("simple", "small", 8)
-    if scope.kind == "out_of_scope":
+    if scope.kind in ("out_of_scope", "unsupported"):
         return Route("refuse", "small", 0)
+    if scope.kind == "wireframe":
+        return Route("wireframe", "large", 12)
     if scope.kind == "broad" or (scope.confidence == "low" and len(scope.options) >= 2):
         return Route("clarify", "small", 0)
     if scope.kind in ("simple", "screen_hybrid") and scope.confidence != "low":
