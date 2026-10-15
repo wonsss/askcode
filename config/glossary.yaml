@@ -5,7 +5,7 @@
 팔로우: [favorite, favorites, follow, follows]
 즐겨찾기: [favorite, favorites]
 내 소식: [updates, follow-updates, my-news]
-알림: [notification, push, mobile-push]
+알림: [notification, push, mobile-push, notificationsEnabled, update-follow-notification]
 푸시: [push, mobile-push-policy]
 구독: [subscription, subscriptions]
 웹뷰: [webview, WebView, embed, embedded]
