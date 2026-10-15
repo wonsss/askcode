@@ -1,5 +1,6 @@
 """맥북 호스트 모드: launchd로 봇·웹 콘솔을 띄우고(죽으면 다시 뜸), 켜져 있는 동안 잠자기를 막고,
-매일 새벽 DB 백업을 돌린다. 인증은 .env의 API 키다(구독 로그인은 정책상 쓰지 않는다).
+매일 새벽 DB 백업을 돌린다. LLM 인증은 .env의 ASKCODE_LLM_PROVIDER가 정한다
+(api=ANTHROPIC_API_KEY, subscription=로컬 claude CLI 구독 로그인 — 로컬 PoC 전용).
 
   askcode host on      등록하고 켠다
   askcode host off     끄고 등록을 지운다
@@ -116,6 +117,14 @@ def off() -> list[str]:
             done.append(name)
         (_agents_dir() / f"{label}.plist").unlink(missing_ok=True)
     return done
+
+
+def restart(name: str) -> bool:
+    """등록된 작업 하나를 다시 띄운다(kickstart -k). 등록돼 있지 않으면 False."""
+    label = f"{LABEL_PREFIX}.{name}"
+    if not _loaded(label):
+        return False
+    return _launchctl("kickstart", "-k", f"{_domain()}/{label}").returncode == 0
 
 
 def job_states(log_dir: Path) -> dict[str, dict]:

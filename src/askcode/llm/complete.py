@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Protocol, runtime_checkable
 
 from anthropic import AsyncAnthropic
 
@@ -23,6 +23,18 @@ class Completion:
     output_tokens: int
     cache_read_tokens: int
     cache_write_tokens: int
+
+
+@runtime_checkable
+class Completer(Protocol):
+    """분류·추출용 단순 LLM 호출 계약. API 직접 호출(LLM)과 claude CLI 하위 프로세스(CliLLM)가 구현한다."""
+
+    async def complete(
+        self, prompt: str, tier: Tier = "small", cache_prefix: str | None = None, max_tokens: int = 1024
+    ) -> Completion: ...
+
+    async def vision(self, prompt: str, image: bytes, media_type: str, tier: Tier = "small",
+                     max_tokens: int = 800) -> Completion: ...
 
 
 def _thinking(tier: Tier) -> dict:

@@ -4,12 +4,28 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from dotenv import dotenv_values
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
+
+
+def update_env_file(path: Path, key: str, value: str) -> None:
+    """`.env`의 KEY=value 한 줄을 바꾼다. 없으면 끝에 붙인다. 주석·다른 키는 그대로 둔다."""
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    replaced = False
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        if not stripped.startswith("#") and stripped.split("=", 1)[0].strip() == key:
+            lines[i] = f"{key}={value}"
+            replaced = True
+            break
+    if not replaced:
+        lines.append(f"{key}={value}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 class Settings(BaseSettings):
@@ -28,6 +44,10 @@ class Settings(BaseSettings):
     config_dir: Path = Field(default=Path("config"))
 
     # Claude
+    # api: .env의 ANTHROPIC_API_KEY로 직접 호출. subscription: 로컬 `claude` CLI 구독 로그인을 하위
+    # 프로세스로 띄워 사용(SlackBotManager 방식). 구독 모드는 Anthropic 정책상 타인에게 서비스하는 용도로
+    # 쓰면 안 되므로 로컬 PoC 전용.
+    llm_provider: Literal["api", "subscription"] = "api"
     anthropic_api_key: SecretStr | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
     # 셸의 ANTHROPIC_BASE_URL은 쓰지 않는다. .env의 ANTHROPIC_BASE_URL 또는 ASKCODE_ANTHROPIC_BASE_URL만 반영한다.
     anthropic_base_url: str = Field(default=DEFAULT_ANTHROPIC_BASE_URL, validation_alias="ASKCODE_ANTHROPIC_BASE_URL")
@@ -37,7 +57,7 @@ class Settings(BaseSettings):
     agent_effort_large: str | None = None
     agent_effort_small: str | None = None
     agent_max_turns: int = 12
-    agent_max_budget_usd: float = 0.5
+    agent_max_budget_usd: float = 0.5  # api 모드만 적용 (구독은 토큰 과금이 없어 무시)
 
     # GitHub — GitHub App 우선, 없으면 읽기 전용 토큰(개발용)
     github_app_id: str | None = None

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import yaml
 
-from askcode.llm.complete import LLM, Completion
+from askcode.llm.complete import Completer, Completion
 
 log = logging.getLogger(__name__)
 
@@ -22,6 +22,10 @@ class LLMUnavailable(Exception):
 
 
 def is_fatal_api_error(exc: Exception) -> bool:
+    from askcode.llm.claude_cli import CliError
+
+    if isinstance(exc, CliError):
+        return exc.fatal
     import anthropic
 
     if isinstance(exc, (anthropic.AuthenticationError, anthropic.PermissionDeniedError)):
@@ -194,7 +198,7 @@ def route_for(scope: Scope) -> Route:
 
 
 class Scoper:
-    def __init__(self, llm: LLM, domain_map: DomainMap):
+    def __init__(self, llm: Completer, domain_map: DomainMap):
         self.llm = llm
         self.map = domain_map
         self._system = SCOPE_SYSTEM.format(domains=domain_map.prompt_block())

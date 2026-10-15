@@ -22,13 +22,20 @@ def collect(settings, repo_name: str, web_base: str, port: int = host.CONSOLE_PO
     from askcode.console.data import ROUTE_KO, ConsoleData
 
     jobs = host.job_states(settings.data_dir / "logs")
+    provider = getattr(settings, "llm_provider", "api")
     out: dict = {
         "generated_at": time.time(),
         "jobs": jobs,
         "installed": any(j["state"] != "off" for j in jobs.values()),
         "console_url": f"http://127.0.0.1:{port}",
+        "provider": provider,
         "auth": "api_key" if settings.anthropic_api_key else "missing",
     }
+    if provider == "subscription":
+        from askcode.llm.claude_cli import find_claude
+
+        out["claude_cli"] = bool(find_claude())
+        out["auth"] = "subscription" if out["claude_cli"] else "cli_missing"
     if settings.db_path.exists():
         data = ConsoleData(settings.db_path, repo_name, web_base, Path("eval/results"))
         today, week = _midnight(), time.time() - 7 * 86400
@@ -40,7 +47,7 @@ def collect(settings, repo_name: str, web_base: str, port: int = host.CONSOLE_PO
                        "cost": round(sum(r.cost for r in rows_week), 4)}
         out["check"] = len(data.needs_check())
         out["recent"] = [{"id": r.id, "question": r.question, "route": ROUTE_KO.get(r.route or "", r.route or ""),
-                          "confidence": r.confidence, "ts": r.ts, "cost": round(r.cost, 4),
+                          "provider": r.provider, "confidence": r.confidence, "ts": r.ts, "cost": round(r.cost, 4),
                           "flags": r.check_reasons}
                          for r in data.rows(source="slack")[:6]]
         data.conn.close()

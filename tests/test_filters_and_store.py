@@ -81,5 +81,6 @@ def test_preflight_reports_rejected_key(monkeypatch):
         raise anthropic.AuthenticationError("invalid x-api-key", response=httpx.Response(401, request=req), body=None)
 
     monkeypatch.setattr(anthropic.resources.Messages, "create", reject)
-    msg = claude_preflight(Settings(ANTHROPIC_API_KEY="bad"))
+    # .env에 ASKCODE_LLM_PROVIDER가 있을 수 있어 이 테스트는 api 모드를 명시한다
+    msg = claude_preflight(Settings(ANTHROPIC_API_KEY="bad", llm_provider="api"))
     assert msg and "401" in msg and "bad" not in msg

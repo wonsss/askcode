@@ -7,6 +7,7 @@
   askcode stats                            감사 로그 요약
   askcode console [--port 8787]            웹 콘솔 (로컬 전용, 읽기 전용, API 비용 없음)
   askcode host on|off|status               맥북 호스트 모드 (봇·콘솔 상시 실행, 잠자기 방지, 매일 백업)
+  askcode provider [api|subscription]      LLM 인증 경로 확인·전환 (subscription=로컬 claude CLI 구독)
   askcode backup [--dest DIR]              감사 로그 백업 (+ ASKCODE_BACKUP_UPLOAD_CMD로 서버 밖 복사)
   askcode restore-check [백업 파일]         백업 복구 확인 (무결성·질문 수)
   askcode maintenance [--vacuum]           오래된 커밋 스냅숏·WAL 정리
@@ -268,6 +269,32 @@ def cmd_status(as_json: bool, check_claude: bool) -> None:
           f"확인 필요 {st['check']}건 · 최근 백업 {st['last_backup']['age_hours'] if st['last_backup'] else '-'}시간 전")
 
 
+def cmd_provider(mode: str | None) -> None:
+    """LLM 인증 경로 전환. .env에 기록하고, host 모드로 봇이 켜져 있으면 봇만 재시작해 바로 적용한다."""
+    from askcode.settings import Settings, update_env_file
+
+    s = Settings()
+    if mode is None:
+        print(f"현재 인증 경로: {s.llm_provider} (api=ANTHROPIC_API_KEY, subscription=로컬 claude CLI 구독)")
+        return
+    if mode == s.llm_provider:
+        print(f"이미 {mode} 모드예요.")
+        return
+    update_env_file(Path(".env"), "ASKCODE_LLM_PROVIDER", mode)
+    warn = ""
+    if mode == "subscription":
+        from askcode.llm.claude_cli import cli_preflight
+
+        problem = cli_preflight()
+        if problem:
+            warn = f"\n⚠️ {problem}"
+    from askcode import host
+
+    restarted = host.restart("bot") if sys.platform == "darwin" else False
+    print(f".env에 ASKCODE_LLM_PROVIDER={mode} 저장"
+          + (" · 봇을 재시작해 적용했어요" if restarted else " · 다음 serve 시작부터 적용돼요") + warn)
+
+
 def cmd_host(action: str, port: int) -> None:
     """맥북 호스트 모드 (launchd). API 키 인증 그대로, Claude 비용은 질문을 받을 때만 든다."""
     from askcode import host
@@ -326,6 +353,8 @@ def main() -> None:
     ho = sub.add_parser("host", help="맥북 호스트 모드: 봇·콘솔 상시 실행, 잠자기 방지, 매일 백업 (macOS)")
     ho.add_argument("action", choices=["on", "off", "status"])
     ho.add_argument("--port", type=int, default=8787)
+    pv = sub.add_parser("provider", help="LLM 인증 경로 확인·전환 (api=API 키, subscription=로컬 claude CLI 구독)")
+    pv.add_argument("mode", nargs="?", choices=["api", "subscription"])
     con = sub.add_parser("console", help="웹 콘솔 (로컬 전용, 읽기 전용)")
     con.add_argument("--port", type=int, default=8787)
     dr = sub.add_parser("doctor")
@@ -355,6 +384,8 @@ def main() -> None:
         cmd_status(args.json, args.check_claude)
     elif args.cmd == "host":
         cmd_host(args.action, args.port)
+    elif args.cmd == "provider":
+        cmd_provider(args.mode)
     elif args.cmd == "console":
         cmd_console(args.port)
     elif args.cmd == "stats":

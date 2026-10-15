@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+import getpass
 import logging
+import os
 import tempfile
 import time
 from typing import Any
@@ -46,14 +48,23 @@ def _sdk_tool(spec: ToolSpec):
 
 
 class ClaudeAgentRunner:
-    def __init__(self, model: str, api_key: str | None, base_url: str | None = None):
+    def __init__(self, model: str, api_key: str | None, base_url: str | None = None,
+                 subscription: bool = False):
         self.model = model
         self.api_key = api_key
         self.base_url = base_url
+        self.subscription = subscription
         self._workdir = tempfile.mkdtemp(prefix="askcode-agent-")
 
     def _env(self) -> dict[str, str]:
         """하위 프로세스는 부모 환경변수를 물려받는다. 셸의 Claude 인증·주소 대신 봇 설정을 쓰도록 덮어쓴다."""
+        if self.subscription:
+            # 구독 모드: 하위 claude CLI가 로컬 구독 로그인을 쓰게 한다. 상속된 API 과금 변수는 비운다.
+            env = {k: "" for k in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")}
+            # 자격 증명 조회는 USER를 쓰는데 launchd의 최소 환경에는 없을 수 있다
+            env["USER"] = os.environ.get("USER") or getpass.getuser()
+            env["LOGNAME"] = os.environ.get("LOGNAME") or env["USER"]
+            return env
         env: dict[str, str] = {}
         if self.api_key:
             env["ANTHROPIC_API_KEY"] = self.api_key
@@ -84,7 +95,8 @@ class ClaudeAgentRunner:
             system_prompt=request.system_prompt,
             model=request.model or self.model,
             max_turns=request.max_turns,
-            max_budget_usd=request.max_budget_usd,
+            # 구독 모드는 토큰 과금이 없고 CLI가 리스트 단가로 계산해 예산을 일찍 친다 — 최대 대화 수로만 제한
+            max_budget_usd=None if self.subscription else request.max_budget_usd,
             effort=request.effort,
             permission_mode="dontAsk",
             setting_sources=[],

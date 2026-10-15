@@ -82,8 +82,15 @@ def offline_checks(s: Settings) -> list[Check]:
     checks.append(Check(OK if Path(".env").exists() else WARN, ".env",
                         "있음" if Path(".env").exists() else "없음 — cp .env.example .env", required=False))
 
-    ok, d = _secret(s.anthropic_api_key, "sk-ant-")
-    checks.append(Check(OK if ok else FAIL, "ANTHROPIC_API_KEY", d))
+    if s.llm_provider == "subscription":
+        from askcode.llm.claude_cli import find_claude
+
+        exe = find_claude()
+        checks.append(Check(OK if exe else FAIL, "claude CLI (구독 모드)",
+                            exe or "없음 — Claude Code 설치 후 `claude auth login`"))
+    else:
+        ok, d = _secret(s.anthropic_api_key, "sk-ant-")
+        checks.append(Check(OK if ok else FAIL, "ANTHROPIC_API_KEY", d))
     ok, d = _secret(s.slack_bot_token, "xoxb-")
     checks.append(Check(OK if ok else WARN, "ASKCODE_SLACK_BOT_TOKEN", d + ("" if ok else " (serve에 필요)"), required=False))
     ok, d = _secret(s.slack_app_token, "xapp-")
@@ -133,7 +140,13 @@ def offline_checks(s: Settings) -> list[Check]:
 
 def online_checks(s: Settings) -> list[Check]:
     checks: list[Check] = []
-    if s.anthropic_api_key:
+    if s.llm_provider == "subscription":
+        from askcode.llm.claude_cli import cli_preflight
+
+        problem = cli_preflight()
+        checks.append(Check(OK if problem is None else FAIL, "Claude 구독 (claude CLI)",
+                            problem or "로그인·호출 정상"))
+    elif s.anthropic_api_key:
         try:
             from anthropic import Anthropic
 
@@ -211,6 +224,10 @@ def claude_preflight(s: Settings) -> str | None:
     키가 거부되면 첫 질문에서야 실패해 슬랙에 "AI 모델을 호출할 수 없어요"만 보이므로 시작할 때 막는다.
     모델 목록 조회는 크레딧이 없어도 성공하므로 1토큰 호출(약 $0.00001)까지 한다.
     """
+    if s.llm_provider == "subscription":
+        from askcode.llm.claude_cli import cli_preflight
+
+        return cli_preflight()
     if not s.anthropic_api_key:
         return "ANTHROPIC_API_KEY가 .env에 없어요."
     import anthropic

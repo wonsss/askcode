@@ -9,7 +9,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from askcode.llm.complete import LLM
+from askcode.llm.complete import Completer
 from askcode.llm.pricing import estimate_cost
 
 ALLOWED_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
@@ -45,7 +45,7 @@ def _clean(v: object, limit: int) -> str:
     return "" if MASK in s and s.replace(MASK, "").strip(" ,:·-") == "" else s
 
 
-async def extract_screen(llm: LLM, image: bytes, media_type: str) -> ScreenCapture:
+async def extract_screen(llm: Completer, image: bytes, media_type: str) -> ScreenCapture:
     if media_type not in ALLOWED_TYPES or len(image) > MAX_BYTES:
         return ScreenCapture()
     comp = await llm.vision(EXTRACT_PROMPT, image, media_type, max_tokens=1500)

@@ -19,7 +19,7 @@ from pathlib import Path
 
 import yaml
 
-from askcode.llm.complete import LLM
+from askcode.llm.complete import Completer
 from askcode.pipeline.answer import Answer, AnswerService
 
 JUDGE_PROMPT = """\
@@ -61,7 +61,7 @@ def load_golden(path: Path) -> list[dict]:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-async def judge(llm: LLM, item: dict, answer: Answer) -> tuple[bool | None, str]:
+async def judge(llm: Completer, item: dict, answer: Answer) -> tuple[bool | None, str]:
     """대형 모델로 판정한다. 소형 모델은 판정 이유와 결론이 서로 모순되는 경우가 잦았다."""
     try:
         comp = await llm.complete(JUDGE_PROMPT.format(
@@ -77,7 +77,7 @@ async def judge(llm: LLM, item: dict, answer: Answer) -> tuple[bool | None, str]
         return None, f"판정 실패: {type(exc).__name__}"
 
 
-async def evaluate_item(service: AnswerService, llm: LLM | None, item: dict) -> ItemResult:
+async def evaluate_item(service: AnswerService, llm: Completer | None, item: dict) -> ItemResult:
     started = time.monotonic()
     a = await service.answer(item["question"], source="eval")
     behavior = a.status  # answer | clarify | refuse | error(API 사용 불가)
@@ -151,7 +151,7 @@ def render_markdown(results: list[ItemResult], summary: dict, commit: str) -> st
     return "\n".join(out) + "\n"
 
 
-async def run_eval(service: AnswerService, llm: LLM | None, golden: list[dict], out_dir: Path, commit: str,
+async def run_eval(service: AnswerService, llm: Completer | None, golden: list[dict], out_dir: Path, commit: str,
                    concurrency: int = 2) -> tuple[list[ItemResult], dict, Path]:
     sem = asyncio.Semaphore(concurrency)
 
