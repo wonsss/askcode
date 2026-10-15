@@ -18,6 +18,15 @@ from askcode.store.db import Store
 
 log = logging.getLogger(__name__)
 MENTION_RE = re.compile(r"<@[A-Z0-9]+>")
+WRAP_CHARS = "`\"'“”‘’"
+
+
+def clean_question(text: str) -> str:
+    """멘션을 지우고, 안내 예시를 복사해 붙인 백틱·따옴표를 걷어낸다."""
+    q = MENTION_RE.sub("", text).strip()
+    while len(q) >= 2 and q[0] in WRAP_CHARS and q[-1] in WRAP_CHARS:
+        q = q[1:-1].strip()
+    return q
 CLARIFY_RE = re.compile(r"^clarify_pick_")
 DEFAULT_SCREEN_QUESTION = "이 화면은 어떤 코드로 구현돼 있고, 주요 버튼은 어떤 조건으로 동작해?"
 
@@ -38,7 +47,7 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
         return screenshot_context(texts, desc) if texts else ""
 
     async def handle_question(client, channel: str, user: str, text: str, thread_ts: str, files: list[dict]) -> None:
-        question = MENTION_RE.sub("", text).strip()
+        question = clean_question(text)
         has_image = any(f.get("mimetype") in ALLOWED_TYPES for f in files or [])
         if not question and not has_image:
             await client.chat_postMessage(channel=channel, thread_ts=thread_ts,

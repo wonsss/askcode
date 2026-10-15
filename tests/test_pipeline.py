@@ -81,3 +81,11 @@ async def test_slack_blocks(store, tools, repo_cfg, repo_dir):
     assert {e["action_id"] for e in blocks[-1]["elements"]} == {"show_evidence", "feedback_up", "feedback_down", "escalate"}
     assert "github.com/example/demo/blob/abc1234def" in str(blocks)
     assert to_mrkdwn("**굵게** [링크](https://x.y)") == "*굵게* <https://x.y|링크>"
+
+
+def test_clean_question_strips_mention_and_copied_backticks():
+    from askcode.slack.app import clean_question
+
+    assert clean_question("<@U123ABC> `의안 상세 화면은 네이티브야 웹뷰야?`") == "의안 상세 화면은 네이티브야 웹뷰야?"
+    assert clean_question("“알림 로직 알려줘”") == "알림 로직 알려줘"
+    assert clean_question("`code_search`가 뭐야?") == "`code_search`가 뭐야?"
