@@ -49,3 +49,37 @@ def test_env_file_api_key_wins_over_shell(tmp_path, monkeypatch):
     s = Settings()
     assert s.anthropic_api_key.get_secret_value() == "from-dotenv"
     assert s.agent_max_turns == 9  # ASKCODE_* 는 환경변수가 우선(실험용 덮어쓰기 유지)
+
+
+def test_shell_base_url_is_ignored_unless_in_env_file(tmp_path, monkeypatch):
+    from askcode.settings import DEFAULT_ANTHROPIC_BASE_URL, Settings
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://proxy.invalid")
+    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=k\n", encoding="utf-8")
+    assert Settings().anthropic_base_url == DEFAULT_ANTHROPIC_BASE_URL
+    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=k\nANTHROPIC_BASE_URL=https://gw.example\n", encoding="utf-8")
+    assert Settings().anthropic_base_url == "https://gw.example"
+
+
+def test_agent_env_overrides_inherited_claude_auth():
+    from askcode.agent.claude_runner import ClaudeAgentRunner
+
+    env = ClaudeAgentRunner("m", "bot-key", "https://api.anthropic.com")._env()
+    assert env == {"ANTHROPIC_API_KEY": "bot-key", "ANTHROPIC_AUTH_TOKEN": "", "ANTHROPIC_BASE_URL": "https://api.anthropic.com"}
+
+
+def test_preflight_reports_rejected_key(monkeypatch):
+    import anthropic
+    import httpx
+
+    from askcode.doctor import claude_preflight
+    from askcode.settings import Settings
+
+    def reject(self, **kw):
+        req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        raise anthropic.AuthenticationError("invalid x-api-key", response=httpx.Response(401, request=req), body=None)
+
+    monkeypatch.setattr(anthropic.resources.Messages, "create", reject)
+    msg = claude_preflight(Settings(ANTHROPIC_API_KEY="bad"))
+    assert msg and "401" in msg and "bad" not in msg

@@ -46,10 +46,21 @@ def _sdk_tool(spec: ToolSpec):
 
 
 class ClaudeAgentRunner:
-    def __init__(self, model: str, api_key: str | None):
+    def __init__(self, model: str, api_key: str | None, base_url: str | None = None):
         self.model = model
         self.api_key = api_key
+        self.base_url = base_url
         self._workdir = tempfile.mkdtemp(prefix="askcode-agent-")
+
+    def _env(self) -> dict[str, str]:
+        """하위 프로세스는 부모 환경변수를 물려받는다. 셸의 Claude 인증·주소 대신 봇 설정을 쓰도록 덮어쓴다."""
+        env: dict[str, str] = {}
+        if self.api_key:
+            env["ANTHROPIC_API_KEY"] = self.api_key
+            env["ANTHROPIC_AUTH_TOKEN"] = ""  # 셸의 Bearer 토큰이 API 키보다 우선하지 않게 비운다
+        if self.base_url:
+            env["ANTHROPIC_BASE_URL"] = self.base_url
+        return env
 
     async def run(self, request: AgentRequest) -> AgentResponse:
         allowed = [f"mcp__{SERVER_NAME}__{t.name}" for t in request.tools]
@@ -78,7 +89,7 @@ class ClaudeAgentRunner:
             permission_mode="dontAsk",
             setting_sources=[],
             cwd=self._workdir,
-            env={"ANTHROPIC_API_KEY": self.api_key} if self.api_key else {},
+            env=self._env(),
             hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[guard])]},
         )
 

@@ -34,7 +34,7 @@ chmod 600 secrets/github-app.pem
 
 | 변수 | 설명 |
 | --- | --- |
-| `ANTHROPIC_API_KEY` | Claude API 키 |
+| `ANTHROPIC_API_KEY` | Claude API 키. 셸 환경변수보다 `.env` 값이 우선한다(다른 도구의 키와 섞이지 않게). `serve`가 시작할 때 확인한다 |
 | `ASKCODE_GITHUB_APP_ID`, `ASKCODE_GITHUB_APP_INSTALLATION_ID` | GitHub App (Contents·Metadata 읽기 전용, law-watch에만 설치) |
 | `ASKCODE_SLACK_BOT_TOKEN`, `ASKCODE_SLACK_APP_TOKEN` | 슬랙 앱 (README의 슬랙 앱 설정 참고) |
 

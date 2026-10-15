@@ -9,6 +9,8 @@ from dotenv import dotenv_values
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -23,6 +25,8 @@ class Settings(BaseSettings):
 
     # Claude
     anthropic_api_key: SecretStr | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
+    # 셸의 ANTHROPIC_BASE_URL은 쓰지 않는다. .env의 ANTHROPIC_BASE_URL 또는 ASKCODE_ANTHROPIC_BASE_URL만 반영한다.
+    anthropic_base_url: str = Field(default=DEFAULT_ANTHROPIC_BASE_URL, validation_alias="ASKCODE_ANTHROPIC_BASE_URL")
     model_large: str = "claude-sonnet-5-5"
     model_small: str = "claude-haiku-5-5"
     # 에이전트 effort (low|medium|high|xhigh|max). 비우면 모델 기본값: sonnet-5-5 high, haiku-5-5 medium
@@ -57,13 +61,15 @@ class Settings(BaseSettings):
     read_max_lines: int = 200
 
     def model_post_init(self, _context: object) -> None:
-        # ANTHROPIC_API_KEY는 이름이 다른 도구와 겹친다. Claude 데스크톱 터미널 같은 셸이 물려준 값이 .env의 봇 전용 키를
-        # 덮어쓰면 401(invalid x-api-key)이 나므로, 이 값만 .env를 우선한다. ASKCODE_* 설정은 지금처럼 환경변수가 우선이다.
+        # ANTHROPIC_* 는 이름이 다른 도구(Claude Code 등)와 겹친다. 셸이 물려준 값이 .env의 봇 전용 키·주소를 덮어쓰면
+        # 401(invalid x-api-key)이나 엉뚱한 엔드포인트 호출이 나므로, 이 둘은 .env를 우선한다.
+        # ASKCODE_* 설정은 지금처럼 환경변수가 우선이다(실험용 덮어쓰기).
         env_file = self.model_config.get("env_file")
-        if isinstance(env_file, str) and Path(env_file).is_file():
-            key = dotenv_values(env_file).get("ANTHROPIC_API_KEY")
-            if key:
-                self.anthropic_api_key = SecretStr(key)
+        values = dotenv_values(env_file) if isinstance(env_file, str) and Path(env_file).is_file() else {}
+        if values.get("ANTHROPIC_API_KEY"):
+            self.anthropic_api_key = SecretStr(values["ANTHROPIC_API_KEY"])
+        if values.get("ANTHROPIC_BASE_URL"):
+            self.anthropic_base_url = values["ANTHROPIC_BASE_URL"]
 
     @property
     def db_path(self) -> Path:

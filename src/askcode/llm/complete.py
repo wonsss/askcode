@@ -39,7 +39,8 @@ class LLM:
     def __init__(self, settings: Settings):
         key = settings.anthropic_api_key.get_secret_value() if settings.anthropic_api_key else None
         # SDK 기본 타임아웃은 10분이라 응답이 멈추면 슬랙 질문도 그만큼 멈춘다(평가 판정에서 실측 600초).
-        self._client = AsyncAnthropic(api_key=key, timeout=60.0, max_retries=2)
+        # base_url을 명시해 셸의 ANTHROPIC_BASE_URL을 따라가지 않게 한다
+        self._client = AsyncAnthropic(api_key=key, base_url=settings.anthropic_base_url, timeout=60.0, max_retries=2)
         self._models = {"small": settings.model_small, "large": settings.model_large}
 
     async def complete(

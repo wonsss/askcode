@@ -118,6 +118,11 @@ def cmd_serve() -> None:
     s = c.settings
     if not (s.slack_bot_token and s.slack_app_token):
         sys.exit("ASKCODE_SLACK_BOT_TOKEN, ASKCODE_SLACK_APP_TOKEN이 필요합니다.")
+    from askcode.doctor import claude_preflight
+
+    problem = claude_preflight(s)  # 키·크레딧 문제를 첫 질문이 아니라 시작할 때 알린다
+    if problem:
+        sys.exit(f"Claude를 호출할 수 없어 봇을 시작하지 않았어요: {problem}")
     c.refresh()
 
     async def periodic_sync() -> None:

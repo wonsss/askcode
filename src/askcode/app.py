@@ -91,7 +91,7 @@ def build_container(settings: Settings | None = None) -> Container:
     api_key = settings.anthropic_api_key.get_secret_value() if settings.anthropic_api_key else None
     llm = LLM(settings)
     domain_map = load_domain_map(settings.config_dir)
-    runner = ClaudeAgentRunner(model=settings.model_large, api_key=api_key)
+    runner = ClaudeAgentRunner(model=settings.model_large, api_key=api_key, base_url=settings.anthropic_base_url)
     code_tools = CodeTools(store, repo, repo_path, settings.search_max_results, settings.read_max_lines)
     service = AnswerService(
         store, repo, repo_path, runner, code_tools, settings.agent_max_turns, settings.agent_max_budget_usd,

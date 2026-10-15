@@ -13,7 +13,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from askcode.settings import Settings
+from askcode.settings import DEFAULT_ANTHROPIC_BASE_URL, Settings
 
 OK, WARN, FAIL = "✅", "⚠️ ", "❌"
 
@@ -108,7 +108,7 @@ def online_checks(s: Settings) -> list[Check]:
         try:
             from anthropic import Anthropic
 
-            client = Anthropic(api_key=s.anthropic_api_key.get_secret_value())
+            client = Anthropic(api_key=s.anthropic_api_key.get_secret_value(), base_url=s.anthropic_base_url)
             models = {m.id for m in client.models.list(limit=100).data}
             missing = [m for m in (s.model_small, s.model_large) if m not in models]
             checks.append(Check(WARN if missing else OK, "Claude API",
@@ -169,6 +169,34 @@ def run(online: bool) -> int:
         print(f"필수 항목 {len(failed)}개를 해결해야 실행할 수 있어요.")
         return 1
     print("실행 준비 완료." + ("" if online else " 연결까지 확인하려면: askcode doctor --online"))
-    if os.environ.get("ANTHROPIC_BASE_URL"):
-        print("참고: ANTHROPIC_BASE_URL이 설정돼 있어 Claude 호출이 다른 엔드포인트로 갈 수 있어요.")
+    if s.anthropic_base_url != DEFAULT_ANTHROPIC_BASE_URL:
+        print(f"참고: Claude 호출 주소가 기본값이 아니에요({s.anthropic_base_url}, .env에서 설정).")
+    elif os.environ.get("ANTHROPIC_BASE_URL", DEFAULT_ANTHROPIC_BASE_URL).rstrip("/") != DEFAULT_ANTHROPIC_BASE_URL:
+        print("참고: 셸에 ANTHROPIC_BASE_URL이 있지만 봇은 쓰지 않아요(.env에 적었을 때만 사용).")
     return 0
+
+
+def claude_preflight(s: Settings) -> str | None:
+    """봇 시작 전 Claude 키·크레딧 확인. 문제가 있으면 사람이 읽을 원인을, 없으면 None.
+
+    키가 거부되면 첫 질문에서야 실패해 슬랙에 "AI 모델을 호출할 수 없어요"만 보이므로 시작할 때 막는다.
+    모델 목록 조회는 크레딧이 없어도 성공하므로 1토큰 호출(약 $0.00001)까지 한다.
+    """
+    if not s.anthropic_api_key:
+        return "ANTHROPIC_API_KEY가 .env에 없어요."
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=s.anthropic_api_key.get_secret_value(), base_url=s.anthropic_base_url,
+                                 timeout=20.0, max_retries=1)
+    try:
+        client.messages.create(model=s.model_small, max_tokens=1, messages=[{"role": "user", "content": "ping"}])
+    except anthropic.AuthenticationError:
+        return (f"Claude API 키가 거부됐어요(401, {s.anthropic_base_url}). .env의 ANTHROPIC_API_KEY를 확인하세요. "
+                "키가 폐기됐거나 다른 조직의 키일 수 있어요.")
+    except anthropic.APIStatusError as exc:
+        if "credit balance" in str(exc).lower():
+            return "Claude 크레딧 잔액이 부족해요. Console의 Plans & Billing에서 충전하세요."
+        return f"Claude 호출 실패: {type(exc).__name__} {exc.status_code}"
+    except anthropic.APIConnectionError as exc:
+        return f"Claude API에 연결하지 못했어요({s.anthropic_base_url}): {type(exc).__name__}"
+    return None
