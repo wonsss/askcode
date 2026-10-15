@@ -143,8 +143,10 @@ def sanitize_html(raw: str) -> str:
 # ── 화면 명세 → HTML ─────────────────────────────────────────────
 # 명세 스키마 (모델이 ```json 블록으로 낸다. 모든 필드는 선택이고, 모르는 키는 무시한다)
 #   {"title": str, "platform": "app"|"web",
-#    "screens": [{"name": str, "elements": [요소, ...]}]}
-# 요소 공통: "type"(아래 중 하나), "note"(있으면 번호 주석 ①②…을 달고 프레임 아래 설명에 쓴다)
+#    "screens": [{"name": str, "variant": "current"|"proposed"(선택), "elements": [요소, ...]}]}
+#   variant가 있으면 '현재 vs 변경안' 비교 목업이다. 현재 프레임은 스크린샷·코드로 재구성한 화면이다.
+# 요소 공통: "type"(아래 중 하나), "note"(있으면 번호 주석 ①②…을 달고 프레임 아래 설명에 쓴다),
+#   "new"(bool, 변경안 프레임에서만: 새로 추가·바뀐 요소 → 점선 테두리 + 🆕)
 #   header      title, left, right(문자열), large(bool: 큰 제목형, 기본은 내비게이션 바형)
 #   search      placeholder
 #   tabs        items[str], active(int)            상단 탭
@@ -220,6 +222,13 @@ table{width:100%;border-collapse:collapse}th,td{border-bottom:1px solid #ddd;pad
 .tabs .num,.tabbar .num{flex:none;padding:0 4px;color:#fff;border:0}
 .nav .mark,.tabs .mark,.section .mark,.inputbar .mark,.tabbar .mark{right:6px;top:-9px}
 .legend{margin-top:12px;font-size:12px;color:#555;line-height:1.7}.legend .num{margin-right:6px}
+.sub{margin:-8px 0 16px;color:#555;font-size:12px}
+.variant{display:inline-block;border:1px solid #111;border-radius:8px;padding:1px 8px;margin-right:6px;font-size:12px}
+.variant.proposed{background:#111;color:#fff}
+.isnew{outline:2px dashed #111;outline-offset:3px}
+.isnew:not(.fab):not(.tabbar):not(.inputbar){position:relative}
+.newtag{position:absolute;left:-10px;top:-12px;z-index:3;font-size:13px;line-height:1}
+.nav>.newtag,.tabs>.newtag,.tabbar>.newtag,.inputbar>.newtag,.section>.newtag{left:4px;top:2px}
 """
 
 
@@ -249,6 +258,24 @@ def parse_spec(raw: str) -> dict:
         raise WireframeSpecError("그릴 화면이 없음")
     spec["screens"] = screens[:MAX_SCREENS]
     return spec
+
+
+def is_comparison(spec: dict) -> bool:
+    """'현재'와 '변경안' 프레임이 모두 있는 비교 목업인가."""
+    variants = {s.get("variant") for s in spec.get("screens") or []}
+    return {"current", "proposed"} <= variants
+
+
+def new_element_count(spec: dict) -> int:
+    """변경안 프레임에서 🆕로 표시될 요소 수 (columns 안쪽 포함)."""
+    def count(elements: list) -> int:
+        n = 0
+        for e in _valid_elements(elements):
+            n += bool(e.get("new") or e.get("changed"))
+            if e["type"] == "columns":
+                n += sum(count(c) for c in _items(e.get("cols")) if isinstance(c, list))
+        return n
+    return sum(count(s["elements"]) for s in spec.get("screens") or [] if s.get("variant") == "proposed")
 
 
 def _valid_elements(elements: list) -> list[dict]:
@@ -289,6 +316,7 @@ class _Renderer:
     def __init__(self, web: bool) -> None:
         self.web = web
         self.notes: list[str] = []
+        self.proposed = False  # 변경안 프레임을 그리는 중이면 new 표시를 켠다
 
     def mark(self, e: dict) -> str:
         note = _t(e.get("note"))
@@ -301,7 +329,13 @@ class _Renderer:
         return "".join(self.element(e, depth) for e in _valid_elements(elements))
 
     def element(self, e: dict, depth: int) -> str:
-        k, m = e["type"], self.mark(e)
+        if self.proposed and (e.get("new") or e.get("changed")):
+            out = self._element(e, depth, '<span class="newtag">🆕</span>')
+            return out.replace('class="', 'class="isnew ', 1)
+        return self._element(e, depth, "")
+
+    def _element(self, e: dict, depth: int, tag: str) -> str:
+        k, m = e["type"], tag + self.mark(e)
         active = _active(e)
         if k == "header":
             if e.get("large"):
@@ -379,10 +413,14 @@ class _Renderer:
 
     def screen(self, s: dict) -> str:
         self.notes = []
+        variant = s.get("variant") if s.get("variant") in ("current", "proposed") else ""
+        self.proposed = variant == "proposed"
         body = self.elements(s["elements"])
         top = '<div class="browser">브라우저</div>' if self.web else '<div class="status">9:41</div>'
         legend = "".join(f'<div><span class="num">{_num(i)}</span>{n}</div>' for i, n in enumerate(self.notes, 1))
-        return (f'<div class="col{" web" if self.web else ""}"><div class="name">{_t(s.get("name"))}</div>'
+        badge = (f'<span class="variant {variant}">{"현재" if variant == "current" else "변경안"}</span>'
+                 if variant else "")
+        return (f'<div class="col{" web" if self.web else ""}"><div class="name">{badge}{_t(s.get("name"))}</div>'
                 f'<div class="frame">{top}{body}</div><div class="legend">{legend}</div></div>')
 
 
@@ -391,13 +429,15 @@ def render_spec(spec: dict) -> str:
     r = _Renderer(web=spec.get("platform") == "web")
     title = _t(spec.get("title")) or "와이어프레임"
     screens = "".join(r.screen(s) for s in spec["screens"])
+    sub = ('<p class="sub">현재 화면은 스크린샷과 코드로 재구성한 저충실도 그림이라 실제와 세부가 다를 수 있어요. '
+           '변경안에서 점선 테두리와 🆕는 새로 추가·바뀐 요소예요.</p>' if is_comparison(spec) else "")
     return ("<!DOCTYPE html>\n<html lang=\"ko\"><head>"
             f'<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="{CSP}">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             f"<title>{title}</title><style>{SPEC_CSS}</style></head>"
-            f'<body><h1>{title}</h1><div class="row">{screens}</div></body></html>')
+            f'<body><h1>{title}</h1>{sub}<div class="row">{screens}</div></body></html>')
 
 
-def wireframe_filename(question: str, query_id: str) -> str:
-    slug = re.sub(r"[^\w가-힣]+", "-", question).strip("-")[:30] or "wireframe"
-    return f"wireframe-{slug}-{query_id[:6]}.html"
+def wireframe_filename(question: str, query_id: str, prefix: str = "wireframe") -> str:
+    slug = re.sub(r"[^\w가-힣]+", "-", question).strip("-")[:30] or prefix
+    return f"{prefix}-{slug}-{query_id[:6]}.html"

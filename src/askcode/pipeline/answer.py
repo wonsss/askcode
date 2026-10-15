@@ -281,13 +281,14 @@ class AnswerService:
 
     async def _scope(self, question: str, forced_domains: list[str] | None, has_image: bool = False) -> tuple[Scope, float]:
         scope_cost = 0.0
+        image_kw = {"has_image": True} if has_image else {}  # 이미지가 없으면 기존 시그니처 그대로 부른다
         if forced_domains is not None:
             scope = Scope(kind="multi_hop", domains=forced_domains, confidence="high", forced=True, reason="사용자가 범위 선택")
             if self.scoper:
-                s2, comp = await self.scoper.scope(question, has_image=has_image)
+                s2, comp = await self.scoper.scope(question, **image_kw)
                 scope.kind, scope.keywords, scope_cost = s2.kind if s2.kind not in ("broad", "out_of_scope", "unsupported") else "multi_hop", s2.keywords, self._small_cost(comp)
         elif self.scoper:
-            scope, comp = await self.scoper.scope(question, has_image=has_image)
+            scope, comp = await self.scoper.scope(question, **image_kw)
             scope_cost = self._small_cost(comp)
         else:
             scope = Scope(kind="multi_hop", confidence="low", reason="스코핑 미사용")

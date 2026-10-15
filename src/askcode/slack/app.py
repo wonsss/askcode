@@ -13,7 +13,7 @@ from slack_bolt.async_app import AsyncApp
 
 from askcode.llm.complete import LLM
 from askcode.pipeline.answer import AnswerService, evidence_notes
-from askcode.pipeline.screenshot import ALLOWED_TYPES, MAX_BYTES, extract_screen, screenshot_context
+from askcode.pipeline.screenshot import ALLOWED_TYPES, MAX_BYTES, ScreenCapture, extract_screen
 from askcode.slack.blocks import answer_blocks, evidence_blocks, fallback_text, thinking_blocks
 from askcode.store.db import Store
 
@@ -37,15 +37,15 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
     app = AsyncApp(token=bot_token)
     inflight = asyncio.Semaphore(4)  # 동시 에이전트 실행 수 제한
 
-    async def screenshot_extra(files: list[dict]) -> str:
+    async def read_screenshot(files: list[dict]) -> ScreenCapture | None:
+        """첨부 이미지를 메모리에서만 읽어 문구·배치를 뽑는다. 이미지는 저장하지 않는다."""
         img = next((f for f in files or [] if f.get("mimetype") in ALLOWED_TYPES and f.get("size", 0) <= MAX_BYTES), None)
         if not img or not llm:
-            return ""
+            return None
         async with httpx.AsyncClient(timeout=30) as http:
             r = await http.get(img["url_private_download"], headers={"Authorization": f"Bearer {bot_token}"})
             r.raise_for_status()
-        texts, desc, _ = await extract_screen(llm, r.content, img["mimetype"])
-        return screenshot_context(texts, desc) if texts else ""
+        return await extract_screen(llm, r.content, img["mimetype"])
 
     async def deliver(client, channel: str, ts: str, thread_ts: str, answer) -> None:
         """답변 메시지를 갱신하고, 와이어프레임·흐름도가 있으면 HTML 파일을 스레드에 올린다."""
@@ -77,10 +77,10 @@ def build_app(bot_token: str, service: AnswerService, store: Store, escalation_c
             channel=channel, thread_ts=thread_ts, text="확인 중…",
             blocks=thinking_blocks("⏳ 화면을 읽고 코드를 찾고 있어요…" if has_image else "⏳ 코드를 확인하고 있어요…"))
         try:
-            extra = await screenshot_extra(files) if has_image else ""
+            shot = await read_screenshot(files) if has_image else None
             async with inflight:
                 answer = await service.answer(question or DEFAULT_SCREEN_QUESTION, source="slack", user_id=user,
-                                              channel=channel, thread_ts=thread_ts, extra_context=extra)
+                                              channel=channel, thread_ts=thread_ts, screenshot=shot)
             await deliver(client, channel, placeholder["ts"], thread_ts, answer)
         except Exception:
             log.exception("question failed")

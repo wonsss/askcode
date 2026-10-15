@@ -85,7 +85,7 @@ def answer_blocks(a: Answer, note: str | None = None) -> list[dict]:
         return refuse_blocks(a)
     if a.status == "error":
         return [{"type": "section", "text": {"type": "mrkdwn", "text": f"⚠️ {a.body}"}}]
-    meta = ["🖼 와이어프레임"] if a.route == "wireframe" else []
+    meta = (["🖼 현재 vs 변경안"] if a.comparison else ["🖼 와이어프레임"]) if a.route == "wireframe" else []
     meta.append(CONFIDENCE_LABEL.get(a.confidence, a.confidence))
     if a.domain_names:
         meta.append(" · ".join(a.domain_names))
@@ -105,7 +105,7 @@ def answer_blocks(a: Answer, note: str | None = None) -> list[dict]:
     if a.citations:
         lines = "\n".join(citation_line(c) for c in a.citations[:TOP_CITATIONS])
         more = f"\n외 {len(a.citations) - TOP_CITATIONS}건은 '근거 전체 보기'에서 볼 수 있어요." if len(a.citations) > TOP_CITATIONS else ""
-        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"*📎 {'참고한 기존 화면' if a.route == 'wireframe' else '근거'}*\n{lines}{more}"[:MAX_SECTION]}]})
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"*📎 {'영향받는 코드' if a.comparison else '참고한 기존 화면' if a.route == 'wireframe' else '근거'}*\n{lines}{more}"[:MAX_SECTION]}]})
     else:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "검증된 근거가 없어요. 개발자 확인을 권장합니다."}]})
     notes = []

@@ -1,7 +1,7 @@
 """AskCode CLI.
 
   askcode sync [--force] [--no-external]   레포 동기화 + 코드·구조·문서 인덱싱 + 노션·슬랙 수집
-  askcode ask "질문"                        슬랙 없이 파이프라인 실행
+  askcode ask "질문" [--image 화면.png]     슬랙 없이 파이프라인 실행 (스크린샷은 메모리에서만 읽음)
   askcode eval [--ids q01,q02] [--limit N]  골든 세트 평가 → eval/results/
   askcode serve                            슬랙 봇 실행 (주기적 동기화 포함)
   askcode stats                            감사 로그 요약
@@ -36,13 +36,34 @@ def _ensure_index(c) -> None:
         c.refresh()
 
 
-def cmd_ask(question: str, domains: str | None) -> None:
+def _read_image(path: str):
+    from askcode.pipeline.screenshot import ALLOWED_TYPES, MAX_BYTES
+
+    media = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+             ".gif": "image/gif"}.get(Path(path).suffix.lower())
+    data = Path(path).read_bytes()
+    if media not in ALLOWED_TYPES or len(data) > MAX_BYTES:
+        sys.exit("--image는 png·jpg·webp·gif, 5MB 이하만 됩니다.")
+    return data, media
+
+
+def cmd_ask(question: str, domains: str | None, image: str | None = None) -> None:
+    from askcode.pipeline.screenshot import extract_screen
     from askcode.slack.blocks import CONFIDENCE_LABEL
 
     c = build_container()
     _ensure_index(c)
     forced = None if domains is None else [d for d in domains.split(",") if d]
-    a = asyncio.run(c.service.answer(question, source="cli", forced_domains=forced))
+
+    async def run():
+        shot = None
+        if image:
+            data, media = _read_image(image)
+            shot = await extract_screen(c.llm, data, media)  # 이미지는 저장하지 않고 문구·배치만 넘긴다
+            print(f"📷 화면 문구 {len(shot.texts)}개 · 배치 {len(shot.layout)}줄 · 추출 ${shot.cost_usd:.4f}")
+        return await c.service.answer(question, source="cli", forced_domains=forced, screenshot=shot)
+
+    a = asyncio.run(run())
     if a.status != "answer":
         print(f"[{a.status}] {a.body}")
         for did, name in a.options:
@@ -64,7 +85,7 @@ def cmd_ask(question: str, domains: str | None) -> None:
         out = Path(c.settings.data_dir) / ("diagrams" if flow else "wireframes") / filename
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(content, encoding="utf-8")
-        print(f"\n{'🧭 흐름도' if flow else '🖼 와이어프레임'}: {out}")
+        print(f"\n{'🧭 흐름도' if flow else '🖼 현재 vs 변경안' if a.comparison else '🖼 와이어프레임'}: {out}")
     elif a.route == "wireframe":
         print("\n⚠️ 와이어프레임 HTML이 없습니다")
     if a.config_dependent:
@@ -141,6 +162,7 @@ def main() -> None:
     ask = sub.add_parser("ask")
     ask.add_argument("question")
     ask.add_argument("--domains", help="스코핑 없이 범위 지정 (쉼표 구분, 빈 값이면 전체)")
+    ask.add_argument("--image", help="화면 스크린샷 경로 (변경 요청이면 '현재 vs 변경안' 목업)")
     ev = sub.add_parser("eval")
     ev.add_argument("--ids")
     ev.add_argument("--limit", type=int)
@@ -157,7 +179,7 @@ def main() -> None:
     if args.cmd == "sync":
         cmd_sync(args.force, not args.no_external)
     elif args.cmd == "ask":
-        cmd_ask(args.question, args.domains)
+        cmd_ask(args.question, args.domains, args.image)
     elif args.cmd == "eval":
         cmd_eval(args.ids, args.limit, args.concurrency)
     elif args.cmd == "serve":

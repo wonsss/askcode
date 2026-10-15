@@ -29,6 +29,14 @@ def is_fatal_api_error(exc: Exception) -> bool:
     return isinstance(exc, anthropic.BadRequestError) and "credit balance" in str(exc).lower()
 
 
+# 스크린샷 + 이 문형이면 '현재 vs 변경안' 목업으로 보낸다 (예: "공유 버튼 추가하면 어떻게 돼?")
+CHANGE_RE = re.compile(r"(추가|넣|바꾸|바꿔|변경|빼|없애|옮기|옮겨|붙이)[가-힣]*?(면|다면)(?![가-힣])|목업|변경안|시안")
+
+
+def is_change_request(question: str) -> bool:
+    return bool(CHANGE_RE.search(question or ""))
+
+
 KINDS = ("simple", "policy", "screen_hybrid", "multi_hop", "decision", "broad", "wireframe", "unsupported",
          "out_of_scope")
 
@@ -122,7 +130,8 @@ SCOPE_SYSTEM = """\
 - multi_hop: 화면 → API → 서버 로직처럼 여러 레이어를 따라가야 하는 질문
 - decision: 왜 그렇게 결정했는지, 배경·미채택안 (문서 근거)
 - broad: 범위가 너무 넓어 한 번에 답하면 부정확한 질문 (예: "알림 로직 알려줘", "결제 로직 전부")
-- wireframe: 새 기능·화면의 와이어프레임·화면 초안·목업을 만들어 달라는 요청. domains에는 참고할 기존 화면의 도메인을 넣는다
+- wireframe: 새 기능·화면의 와이어프레임·화면 초안·목업을 만들어 달라는 요청. domains에는 참고할 기존 화면의 도메인을 넣는다.
+  화면 스크린샷이 첨부됐고 그 화면에 기능·요소를 추가·변경하면 어떻게 되는지 묻는 요청도 wireframe이다
 - unsupported: 코드 수정·PR·배포·문서 작성·번역처럼 AskCode가 하지 않는 작업 요청 (와이어프레임은 제외)
 - out_of_scope: 실제 사용자 개인정보·운영 DB 데이터·비밀값 요청, 코드베이스와 무관한 질문
 
@@ -157,6 +166,14 @@ class Route:
     max_turns: int
 
 
+def apply_screenshot_rule(scope: Scope, question: str, has_image: bool) -> Scope:
+    """스크린샷 + 변경·추가 문형은 모델 분류와 무관하게 와이어프레임(현재 vs 변경안)으로 보낸다. 거절 유형은 건드리지 않는다."""
+    if has_image and scope.kind not in ("out_of_scope", "unsupported", "wireframe") and is_change_request(question):
+        scope.kind = "wireframe"
+        scope.reason = (scope.reason + " · " if scope.reason else "") + "스크린샷 + 변경 요청 → 변경안 목업"
+    return scope
+
+
 def route_for(scope: Scope) -> Route:
     if scope.forced and scope.kind == "wireframe":
         return Route("wireframe", "large", 12)
@@ -179,9 +196,10 @@ class Scoper:
         self.map = domain_map
         self._system = SCOPE_SYSTEM.format(domains=domain_map.prompt_block())
 
-    async def scope(self, question: str) -> tuple[Scope, Completion | None]:
+    async def scope(self, question: str, has_image: bool = False) -> tuple[Scope, Completion | None]:
         hits = self.map.glossary_hits(question)
-        prompt = f"질문: {question}" + (f"\n용어 힌트: {json.dumps(hits, ensure_ascii=False)}" if hits else "")
+        prompt = (f"질문: {question}" + (f"\n용어 힌트: {json.dumps(hits, ensure_ascii=False)}" if hits else "")
+                  + ("\n첨부: 앱/웹 화면 스크린샷 1장" if has_image else ""))
         try:
             comp = await self.llm.complete(prompt, tier="small", cache_prefix=self._system, max_tokens=800)
             scope = parse_scope(comp.text, {d.id for d in self.map.domains})
