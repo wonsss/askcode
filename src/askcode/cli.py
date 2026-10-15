@@ -5,6 +5,7 @@
   askcode eval [--ids q01,q02] [--limit N]  골든 세트 평가 → eval/results/
   askcode serve                            슬랙 봇 실행 (주기적 동기화 포함)
   askcode stats                            감사 로그 요약
+  askcode doctor [--online]                환경 점검 (도구·설정·인덱스, --online이면 연결까지)
 """
 
 from __future__ import annotations
@@ -137,7 +138,13 @@ def main() -> None:
     ev.add_argument("--concurrency", type=int, default=2)
     sub.add_parser("serve")
     sub.add_parser("stats")
+    dr = sub.add_parser("doctor")
+    dr.add_argument("--online", action="store_true", help="슬랙·Claude·GitHub·노션 연결까지 확인")
     args = parser.parse_args()
+    if args.cmd == "doctor":
+        from askcode.doctor import run
+
+        sys.exit(run(args.online))
     if args.cmd == "sync":
         cmd_sync(args.force, not args.no_external)
     elif args.cmd == "ask":
