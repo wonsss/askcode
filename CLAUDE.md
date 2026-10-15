@@ -21,7 +21,7 @@ uv run askcode ask "질문" [--domains follows-push]
 uv run askcode eval [--ids q01,q26] [--limit N]   # 골든 세트 28문항 → eval/results/
 uv run askcode serve             # 슬랙 봇 (Socket Mode)
 uv run askcode stats
-uv run pytest                    # 102개
+uv run pytest                    # 103개
 ```
 
 ## 구조 요약
@@ -45,7 +45,7 @@ uv run pytest                    # 102개
 
 ## 현재 상태 (2026-10-15)
 
-- 테스트 102개 통과. 실제 Claude API·슬랙으로 실측 완료. 골든 세트 2차 평가 86%(24/28), 이후 노션 3문항(q26~q28) 통과. 단, 답변 문체를 바꾼 뒤 28문항 전체를 다시 돌리지는 않았다.
+- 테스트 103개 통과. 실제 Claude API·슬랙으로 실측 완료. 골든 세트 2차 평가 86%(24/28), 이후 노션 3문항(q26~q28) 통과. 단, 답변 문체를 바꾼 뒤 28문항 전체를 다시 돌리지는 않았다.
 - 비용은 SDK 보고값이 아니라 토큰 × 단가로 계산한다(`llm/pricing.py`). 경로별 실측과 월 비용 추정은 `docs/cost.md`.
 - **API 비용이 드는 작업(eval·ask)은 예상 금액을 먼저 사용자에게 말한다.** 전체 평가 1회 약 $0.85.
 - `.env` 입력 완료: Claude 키, 슬랙 봇·앱 토큰, GitHub App(ID·설치 ID·`secrets/github-app.pem`). GitHub App으로 law-watch 클론·인덱싱 확인됨(`data/`, main@31bcf1e). 확인 요청 채널(`ASKCODE_ESCALATION_CHANNEL`)도 설정됨.
