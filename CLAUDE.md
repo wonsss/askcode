@@ -12,6 +12,7 @@ AskCode: 기획자가 슬랙에서 질문하면 비공개 코드베이스(law-wa
 - `docs/wireframe.md` — 와이어프레임 생성 동작·보안·비용
 - `docs/operations.md` — DB 운영: 보존 정책(영구), 백업·복구, 가리기, 스키마 변경
 - `docs/flowchart.md` — 정책·흐름 답변의 로직 흐름도(명세 JSON + SVG 렌더러)
+- `docs/external-research.md` — 외부 조사가 필요한 질문에 붙여넣기용 프롬프트(유출 필터)
 
 ## 명령
 
@@ -19,7 +20,7 @@ AskCode: 기획자가 슬랙에서 질문하면 비공개 코드베이스(law-wa
 uv run askcode doctor --online   # 환경·연결 점검
 uv run askcode sync              # 레포 동기화 + 코드·구조·문서 인덱싱 + 노션·슬랙 수집
 uv run askcode ask "질문" [--domains follows-push]
-uv run askcode eval [--ids q01,q26] [--limit N]   # 골든 세트 28문항 → eval/results/
+uv run askcode eval [--ids q01,q26] [--limit N]   # 골든 세트 29문항 → eval/results/
 uv run askcode serve             # 슬랙 봇 (Socket Mode)
 uv run askcode stats
 uv run askcode console           # 웹 콘솔 127.0.0.1:8787 (읽기 전용, API 비용 없음)
@@ -28,7 +29,7 @@ uv run askcode host on|off|status   # 맥북 호스트 모드 (launchd, 잠자�
 uv run askcode status [--json]      # 메뉴 막대 앱용 상태 (Claude 호출 없음)
 bash scripts/build-macos-app.sh     # 메뉴 막대 앱 macos/AskCodeBar → ~/Applications/AskCode.app
 uv run askcode redact <query_id> --reason "…"        # 개인정보 유입 시 텍스트 가림
-uv run pytest                    # 119개
+uv run pytest                    # 136개
 ```
 
 ## 구조 요약
@@ -41,7 +42,7 @@ uv run pytest                    # 119개
 - `indexing/` repo_sync(GitHub App) · code_index · structure(API·라우트·manifest·브리지 맵) · docs_index · notion_source · slack_source
 - `store/db.py` SQLite. 감사 로그 테이블은 트리거로 append-only
 - `console/` 웹 콘솔(Starlette, 감사 로그 읽기 전용 연결, 최신성은 `commit_files` 해시 비교)
-- `config/` repos.yaml · domains.yaml(13개 도메인) · glossary.yaml · `eval/golden.yaml`(28문항)
+- `config/` repos.yaml · domains.yaml(13개 도메인) · glossary.yaml · `eval/golden.yaml`(29문항)
 
 ## 지켜야 할 것
 
@@ -53,7 +54,7 @@ uv run pytest                    # 119개
 
 ## 현재 상태 (2026-10-15)
 
-- 테스트 127개 통과. 실제 Claude API·슬랙으로 실측 완료. 골든 세트 2차 평가 86%(24/28), 이후 노션 3문항(q26~q28) 통과. 단, 답변 문체를 바꾼 뒤 28문항 전체를 다시 돌리지는 않았다.
+- 테스트 136개 통과. 실제 Claude API·슬랙으로 실측 완료. 골든 세트 2차 평가 86%(24/28), 이후 노션 3문항(q26~q28) 통과. 단, 답변 문체를 바꾼 뒤 28문항 전체를 다시 돌리지는 않았다.
 - 비용은 SDK 보고값이 아니라 토큰 × 단가로 계산한다(`llm/pricing.py`). 경로별 실측과 월 비용 추정은 `docs/cost.md`.
 - **API 비용이 드는 작업(eval·ask)은 예상 금액을 먼저 사용자에게 말한다.** 전체 평가 1회 약 $0.85.
 - `.env` 입력 완료: Claude 키, 슬랙 봇·앱 토큰, GitHub App(ID·설치 ID·`secrets/github-app.pem`). GitHub App으로 law-watch 클론·인덱싱 확인됨(`data/`, main@31bcf1e). 확인 요청 채널(`ASKCODE_ESCALATION_CHANNEL`)도 설정됨.
@@ -65,5 +66,6 @@ uv run pytest                    # 119개
 - 웹 콘솔 v1 구현(`askcode console`). 동기화 때 커밋별 파일 해시(`commit_files`)를 기록해 답의 최신성을 판단한다. P1(산출물 보관·도메인 FAQ·슬랙 기존 답 제안 등)은 미구현.
 - DB: 감사 로그 **영구 보존**(2026-10-16 결정). 스키마는 `PRAGMA user_version` + `store/db.py`의 `MIGRATIONS`(추가만). 백업·복구 확인·정리·가리기 명령 있음, 서버 밖 복사는 `ASKCODE_BACKUP_UPLOAD_CMD` 미설정.
 - 메뉴 막대 앱(SwiftUI `macos/AskCodeBar`, 화면만 맡고 CLI를 부름). 맥북 호스트 모드(`host.py`, launchd `com.askcode.{bot,console,backup}`)와 봇 중복 실행 잠금(`data/serve.lock`). LLM 인증 경로는 `ASKCODE_LLM_PROVIDER`로 전환(`api` 기본 | `subscription`=로컬 `claude` CLI 구독 로그인을 하위 프로세스로, `llm/claude_cli.py`). `askcode provider api|subscription` 또는 메뉴 막대의 API|구독 토글로 바꾸고 봇이 켜져 있으면 봇만 재시작해 적용. 답에 실제 쓰인 경로는 `query_results.provider`(스키마 v3)에 기록돼 슬랙 메타 줄·콘솔 칩·앱 헤더에 표시된다. 구독 모드는 `max_budget_usd`를 넘기지 않는다(CLI가 리스트 단가로 세다 보니 일찍 끊김, `max_turns`만 제한). 구독으로 타인에게 서비스하는 것은 Anthropic 정책상 불가 — 로컬 PoC 전용.
+- 외부 조사 넘겨주기: 질문에 외부 조사 부분이 있으면 거절하지 않고 코드 부분은 답하고, 사외 AI에 붙여넣을 프롬프트를 붙인다. 스코핑 JSON의 `external`(추가 호출 없음) + 결정적 유출 필터(`pipeline/external.py`, 구조 인덱스 이름·식별자 모양). 전부 외부면 `kind: external`. 서비스 소개는 `repos.yaml`의 `public_summary`. 스코핑 JSON이 깨지면 1회 재시도(한도 2000토큰). q29 추가, CLI(구독 모드)로 프롬프트 첨부 확인, 슬랙은 미확인. 상세는 `docs/external-research.md`.
 - 남은 실패: q11(스코핑이 가끔 되묻기로 분류), q14(웹 기본 페이지 크기 6건 누락).
 - 에이전트 SDK 하위 프로세스는 부모 환경변수를 물려받는다. 그래서 Claude 키·주소는 셸 값을 무시하고 `.env`만 쓴다(`ANTHROPIC_API_KEY`·`ANTHROPIC_BASE_URL`, 하위 프로세스의 `ANTHROPIC_AUTH_TOKEN`은 비움). Claude 데스크톱 터미널에서 띄웠을 때 셸 키가 `.env`를 덮어써 401이 난 적이 있다. `serve`는 시작할 때 1토큰 호출로 키·크레딧을 확인하고, 문제가 있으면 원인을 출력하고 멈춘다.

@@ -26,7 +26,7 @@
 슬랙 (Socket Mode, 멘션·DM·스크린샷)
   └ 질의 파이프라인
      1. 스코핑   소형 모델(thinking 끔) + 도메인 맵 → 유형·범위·확신도
-     2. 라우팅   거절 · 미지원 · 되묻기 · 빠른 답(소형) · 심층 탐색(대형) · 와이어프레임(대형)   ← 코드로 강제
+     2. 라우팅   거절 · 미지원 · 외부 조사 안내 · 되묻기 · 빠른 답(소형) · 심층 탐색(대형) · 와이어프레임(대형)   ← 코드로 강제
      3. 에이전트 Claude Agent SDK, 내장 도구 끔, 읽기 전용 도구만, 범위 하드 필터(1회 확장)
         ├ find_screen · find_api · find_bridge   화면 방식, API 연결, 웹뷰↔앱 메시지
         ├ code_search · read_code · list_dir
@@ -55,7 +55,7 @@ uv run askcode provider [api|subscription]   # 인증 경로 확인·전환 (sub
 uv run askcode ask "앱에서 의안 상세 화면은 네이티브야 웹뷰야?"
 uv run askcode ask "알림 로직 알려줘" --domains follows-push
 uv run askcode ask "커뮤니티 기능 추가 시 와이어프레임 만들어줘"   # → data/wireframes/*.html
-uv run askcode eval [--ids q01,q26]  # 골든 세트 28문항 → eval/results/ (전체 1회 약 $0.85)
+uv run askcode eval [--ids q01,q26]  # 골든 세트 29문항 → eval/results/ (전체 1회 약 $0.85)
 uv run askcode stats
 
 uv run askcode backup                # 감사 로그 백업 (+ 서버 밖 복사)
@@ -152,7 +152,7 @@ API 토큰 연결은 만든 워크스페이스의 페이지만 읽는다. 페이
 | `config/repos.yaml` | 대상 레포, 기준 ref, 제외 규칙 |
 | `config/domains.yaml` | 기획자 관점 도메인 13개와 도메인별 허용 경로 |
 | `config/glossary.yaml` | 기획 용어 → 코드 식별자 힌트 |
-| `eval/golden.yaml` | 골든 세트 28문항 (정답·근거·기대 행동) |
+| `eval/golden.yaml` | 골든 세트 29문항 (정답·근거·기대 행동) |
 | `ASKCODE_LLM_PROVIDER` | `api`(기본, `ANTHROPIC_API_KEY`) \| `subscription`(로컬 `claude` CLI 구독 로그인) |
 | `ASKCODE_MODEL_LARGE` / `_SMALL` | 기본 `claude-sonnet-5-5` / `claude-haiku-5-5` |
 | `ASKCODE_AGENT_EFFORT_LARGE` / `_SMALL` | 비우면 모델 기본값 |
