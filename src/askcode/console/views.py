@@ -32,6 +32,7 @@ main{padding:24px 0 60px}h1{font-size:22px;margin:0 0 6px}h2{font-size:17px;marg
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
 .stat b{display:block;font-size:24px}
 form.search{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+form.resolve{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}form.resolve input[name=note]{flex:1;min-width:200px}form.inline{display:inline;margin:0}form.inline button{padding:3px 10px;font-size:12px}
 input,select,button{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
 input[type=search]{flex:1;min-width:220px}button{background:var(--fg);color:var(--bg);border:0;cursor:pointer}
 table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
@@ -134,7 +135,22 @@ def search_form(params: dict, domain_names: dict[str, str], ops: bool) -> str:
             f"<select name=days>{days}</select>{src}<button>찾기</button></form>")
 
 
-def row_table(rows: list[Row], domain_names: dict[str, str], *, show_source: bool = False, limit: int = 200) -> str:
+def resolve_form(row: Row, csrf: str, *, inline: bool = False, back: str = "") -> str:
+    """처리됨/다시 열기 폼. csrf가 비면(쓰기 꺼진 콘솔) 아무것도 그리지 않는다."""
+    if not csrf or not (row.check_reasons or row.resolved):
+        return ""
+    action = "reopen" if row.resolved else "resolve"
+    label = "다시 열기" if row.resolved else ("처리" if inline else "처리됨으로 표시")
+    hidden = (f'<input type=hidden name=csrf value="{e(csrf)}"><input type=hidden name=action value="{action}">'
+              + (f'<input type=hidden name=back value="{e(back)}">' if back else ""))
+    if inline:
+        return f'<form class="inline" method="post" action="/q/{e(row.id)}/resolve">{hidden}<button>{label}</button></form>'
+    note = "" if row.resolved else '<input name=note maxlength=200 placeholder="메모 (선택) 예: 답 맞음, 질문자에게 회신">'
+    return f'<form class="resolve" method="post" action="/q/{e(row.id)}/resolve">{hidden}{note}<button>{label}</button></form>'
+
+
+def row_table(rows: list[Row], domain_names: dict[str, str], *, show_source: bool = False, limit: int = 200,
+              csrf: str = "", back: str = "") -> str:
     if not rows:
         return '<div class="card muted">결과가 없어요.</div>'
     trs = []
@@ -142,7 +158,8 @@ def row_table(rows: list[Row], domain_names: dict[str, str], *, show_source: boo
         src = f"<td>{e(SOURCE_KO.get(r.source, r.source))}</td>" if show_source else ""
         preview = parse_answer(r.answer)["body"].splitlines()[0][:90] if r.has_answer and r.answer else ""
         trs.append(f'<tr><td class="small muted">{when(r.ts)}</td>{src}<td><a href="/q/{e(r.id)}">{e(r.question)}</a>'
-                   f'<div class="small muted">{inline(preview)}</div></td><td>{chips(r, domain_names)}</td>'
+                   f'<div class="small muted">{inline(preview)}</div></td>'
+                   f'<td>{chips(r, domain_names)}{resolve_form(r, csrf, inline=True, back=back)}</td>'
                    f'<td class="small">{money(r.cost)}</td></tr>')
     head = "<th>시각</th>" + ("<th>출처</th>" if show_source else "") + "<th>질문</th><th></th><th>비용</th>"
     more = f'<p class="small muted">{len(rows) - limit}건 더 있어요. 조건을 좁혀 주세요.</p>' if len(rows) > limit else ""
@@ -202,13 +219,13 @@ def cite_list(cites: list[dict]) -> str:
 
 
 def detail(row: Row, view: str, cites: list[dict], fresh: Freshness, latest: str | None, steps: list[tuple[str, dict]],
-           usage: dict, fb_events: list[dict], domain_names: dict[str, str]) -> str:
+           usage: dict, fb_events: list[dict], domain_names: dict[str, str], csrf: str = "") -> str:
     parsed = parse_answer(row.answer)
     tabs = (f'<div class="tabs"><a href="/q/{e(row.id)}" class="{"on" if view != "ops" else ""}">답</a>'
             f'<a href="/q/{e(row.id)}?view=ops" class="{"on" if view == "ops" else ""}">운영자 보기</a></div>')
     meta = (f'<p class="small muted">{when(row.ts)} · {e(SOURCE_KO.get(row.source, row.source))} · '
             f'기준 main@{e((row.commit or "")[:7])} · 고정 링크 <code>/q/{e(row.id)}</code></p>')
-    head = f"<h1>{e(row.question)}</h1>{meta}<div>{chips(row, domain_names)}</div>{tabs}"
+    head = f"<h1>{e(row.question)}</h1>{meta}<div>{chips(row, domain_names)}</div>{resolve_form(row, csrf)}{tabs}"
     if view != "ops":
         if row.has_answer:
             body_html = md(parsed["body"])
@@ -254,9 +271,11 @@ def detail(row: Row, view: str, cites: list[dict], fresh: Freshness, latest: str
         rs = row.resolved
         reasons += (f'<br><span class="chip">✔︎ 처리됨</span> {when(rs["ts"])} · {e(rs["operator"])}'
                     + (f' · {e(rs["note"])}' if rs["note"] else "")
-                    + f'<br><span class="small muted">다시 열기: <code>uv run askcode resolve {e(row.id)} --reopen</code></span>')
+                    + ("" if csrf else
+                       f'<br><span class="small muted">다시 열기: <code>uv run askcode resolve {e(row.id)} --reopen</code></span>'))
     elif row.check_reasons:
-        reasons += (f'<br><span class="small muted">처리했으면: <code>uv run askcode resolve {e(row.id)} --note "…"</code>'
+        reasons += ('<br><span class="small muted">위의 처리 버튼으로 표시해요. 새 👎·확인 요청이 오면 다시 열려요.</span>' if csrf else
+                    f'<br><span class="small muted">처리했으면: <code>uv run askcode resolve {e(row.id)} --note "…"</code>'
                     " (새 👎·확인 요청이 오면 다시 열려요)</span>")
     body = (head + f"<h2>확인 필요 사유</h2><p>{reasons}</p>"
             + f"<h2>스코핑</h2>{scope_html}<h2>처리</h2>{usage_html}"
@@ -267,7 +286,8 @@ def detail(row: Row, view: str, cites: list[dict], fresh: Freshness, latest: str
     return page(row.question[:40], body, "search")
 
 
-def check_page(rows: list[Row], domain_names: dict[str, str], params: dict, resolved_count: int = 0) -> str:
+def check_page(rows: list[Row], domain_names: dict[str, str], params: dict, resolved_count: int = 0,
+               csrf: str = "") -> str:
     counts = {k: sum(1 for r in rows if k in r.check_reasons) for k in CHECK_REASONS}
     reason = params.get("reason", "")
     shown = [r for r in rows if not reason or reason in r.check_reasons]
@@ -281,14 +301,16 @@ def check_page(rows: list[Row], domain_names: dict[str, str], params: dict, reso
     toggle_label = "처리 안 된 건 보기" if showing_resolved else f"처리된 건 보기 ({resolved_count})"
     body = ("<h1>확인 필요" + (" — 처리됨" if showing_resolved else "") + "</h1>"
             "<p class='muted'>최근 30일, 낮은 확신도·👎·확인 요청·오류·한도 도달·범위 미스가 있는 질문이에요. "
-            "처리한 건은 <code>askcode resolve &lt;id&gt;</code>로 표시하면 여기서 빠져요.</p>"
+            + ("처리한 건은 <b>처리</b> 버튼으로 표시하면 여기서 빠져요. 새 👎·확인 요청이 오면 다시 열려요.</p>" if csrf else
+               "처리한 건은 <code>askcode resolve &lt;id&gt;</code>로 표시하면 여기서 빠져요.</p>")
             + f'<p class="small"><a href="/check?{urlencode(toggle)}">'
               f'{toggle_label}</a></p>'
             + (f"<p>{filt} <a class='small' href='/check'>전체</a></p>" if filt else "")
             + f'<p class="small"><a href="/check?{urlencode({**params, "source": other})}">'
               f'{"평가·CLI 질문도 보기" if src == "slack" else "슬랙만 보기"}</a></p>'
             + ('<div class="card">✅ 확인할 것 없음</div>' if not shown
-               else row_table(shown, domain_names, show_source=src != "slack")))
+               else row_table(shown, domain_names, show_source=src != "slack", csrf=csrf,
+                              back="/check?" + urlencode(params))))
     return page("확인 필요", body, "check")
 
 

@@ -33,7 +33,7 @@
         └ search_docs · read_doc                 레포 docs · 노션 · 슬랙 지정 채널
      4. 근거 검증 인덱스 존재 · 줄 범위 · 도구로 실제 본 구간(폴더는 list_dir) → 확신도
      5. 후처리   흐름도·화면 명세 → 결정적 렌더러(HTML·SVG), 후속 질문 → 버튼
-  └ 감사 로그 (SQLite, append-only) ──→ 웹 콘솔 (읽기 전용)
+  └ 감사 로그 (SQLite, append-only) ──→ 웹 콘솔 (읽기 전용, 처리 기록만 추가)
 
 동기화 (10분 주기): GitHub App → 얕은 클론 → 코드 인덱스 · 구조 맵 · 문서 인덱스 · 커밋별 파일 해시
                      노션(API 토큰 연결) · 슬랙(지정 공개 채널, 최근 90일) 수집
@@ -51,7 +51,7 @@ cp .env.example .env                 # 값 채우기
 uv run askcode doctor --online       # 환경·키·크레딧·노션·DB·백업 점검
 uv run askcode sync                  # 레포 클론 + 인덱싱 + 노션·슬랙 수집 (Claude 비용 없음)
 uv run askcode serve                 # 슬랙 봇
-uv run askcode console               # 웹 콘솔 http://127.0.0.1:8787 (읽기 전용, 비용 없음)
+uv run askcode console               # 웹 콘솔 http://127.0.0.1:8787 (감사 로그 읽기 전용 · 처리 기록만 추가, 비용 없음)
                                      # 팀 공개: https://askcode.lawwatch.kr (Cloudflare Tunnel + Access 이메일 인증, docs/operations.md)
 uv run askcode host on|off|status    # 맥북 호스트 모드: 봇·콘솔 상시 실행, 잠자기 방지, 매일 백업
 uv run askcode provider [api|subscription]   # 인증 경로 확인·전환 (subscription=로컬 claude CLI 구독)
@@ -180,7 +180,7 @@ API 토큰 연결은 만든 워크스페이스의 페이지만 읽는다. 페이
 - 셸에 남은 `ANTHROPIC_API_KEY`·주소 설정이 `.env`의 봇 키를 덮어쓰지 않는다.
 - 스크린샷은 저장하지 않는다. 화면 문구만 쓰고, 사용자 데이터로 보이는 값은 가린다.
 - 흐름도·와이어프레임은 모델이 낸 명세(JSON)를 코드가 그린다. 모델 값은 이스케이프한 텍스트로만 들어가고 외부 접근을 막는 CSP를 넣는다. 명세 대신 HTML이 오면 허용 목록 정제기로 스크립트·외부 리소스·이벤트 속성을 지운다.
-- 웹 콘솔은 127.0.0.1에만 열리고, 감사 로그를 읽기 전용(`mode=ro`)으로 연다. 모든 출력은 이스케이프하고 CSP·`no-referrer`를 건다.
+- 웹 콘솔은 127.0.0.1에만 열리고, 감사 로그를 읽기 전용(`mode=ro`)으로 연다. 유일한 쓰기는 확인 필요 항목의 "처리" 버튼으로, `resolutions`에 기록을 추가만 한다. 이 요청은 프로세스마다 새로 만든 CSRF 토큰과 같은 출처(Sec-Fetch-Site·Origin)를 확인한다. 모든 출력은 이스케이프하고 CSP·`no-referrer`를 건다.
 - Socket Mode라 서버에 인바운드 포트가 필요 없다. 컨테이너는 비루트·읽기 전용·권한 제거로 실행한다.
 - 감사 로그 테이블은 트리거로 수정·삭제를 막는다.
 

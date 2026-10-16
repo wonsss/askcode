@@ -198,13 +198,19 @@ def cmd_console(port: int) -> None:
     from askcode.console.server import create_app
     from askcode.pipeline.scoping import load_domain_map
     from askcode.settings import Settings
+    from askcode.store.db import Store
 
     s = Settings()
     repo = load_repos(s.config_dir)[0]
     names = {d.id: d.name for d in load_domain_map(s.config_dir).domains}
+    store = Store(s.db_path)  # 마이그레이션 적용 + 처리 기록(resolutions)만 쓰는 데 쓴다
+
+    def resolver(qid: str, operator: str, note: str, reopen: bool) -> bool:
+        return store.resolve(qid, operator, note, reopen=reopen)
+
     data = ConsoleData(s.db_path, repo.name, repo.web_base, Path("eval/results"), names)
-    print(f"AskCode 콘솔: http://127.0.0.1:{port}  (로컬 전용, 읽기 전용, 종료는 Ctrl+C)")
-    uvicorn.run(create_app(data), host="127.0.0.1", port=port, log_level="warning")
+    print(f"AskCode 콘솔: http://127.0.0.1:{port}  (로컬 전용, 감사 로그 읽기 전용 · 처리 기록만 추가, 종료는 Ctrl+C)")
+    uvicorn.run(create_app(data, resolver), host="127.0.0.1", port=port, log_level="warning")
 
 
 def cmd_backup(dest: str | None, keep_days: int | None) -> None:

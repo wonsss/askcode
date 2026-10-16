@@ -23,14 +23,14 @@ uv run askcode ask "질문" [--domains follows-push]
 uv run askcode eval [--ids q01,q26] [--limit N]   # 골든 세트 29문항 → eval/results/
 uv run askcode serve             # 슬랙 봇 (Socket Mode)
 uv run askcode stats
-uv run askcode console           # 웹 콘솔 127.0.0.1:8787 (읽기 전용, API 비용 없음)
+uv run askcode console           # 웹 콘솔 127.0.0.1:8787 (감사 로그 읽기 전용 · 처리 기록만 추가, API 비용 없음)
 uv run askcode backup | restore-check | maintenance   # DB 운영 (docs/operations.md)
 uv run askcode host on|off|status   # 맥북 호스트 모드 (launchd, 잠자기 방지, 매일 백업)
 uv run askcode status [--json]      # 메뉴 막대 앱용 상태 (Claude 호출 없음)
 bash scripts/build-macos-app.sh     # 메뉴 막대 앱 macos/AskCodeBar → ~/Applications/AskCode.app
 uv run askcode resolve <query_id…> [--note …] [--all|--reopen]   # 확인 필요 항목 처리됨 표시
 uv run askcode redact <query_id> --reason "…"        # 개인정보 유입 시 텍스트 가림
-uv run pytest                    # 139개
+uv run pytest                    # 141개
 ```
 
 ## 구조 요약
@@ -42,7 +42,7 @@ uv run pytest                    # 139개
 - `tools/` code_search·read_code·list_dir · find_screen·find_api·find_bridge · search_docs·read_doc
 - `indexing/` repo_sync(GitHub App) · code_index · structure(API·라우트·manifest·브리지 맵) · docs_index · notion_source · slack_source
 - `store/db.py` SQLite. 감사 로그 테이블은 트리거로 append-only
-- `console/` 웹 콘솔(Starlette, 감사 로그 읽기 전용 연결, 최신성은 `commit_files` 해시 비교)
+- `console/` 웹 콘솔(Starlette, 감사 로그 읽기 전용 연결, 최신성은 `commit_files` 해시 비교). 유일한 쓰기는 확인 필요 "처리" 버튼 → `resolutions` 추가(CSRF 토큰·같은 출처 확인, 처리자는 Cloudflare Access 이메일)
 - `config/` repos.yaml · domains.yaml(13개 도메인) · glossary.yaml · `eval/golden.yaml`(29문항)
 
 ## 지켜야 할 것
@@ -55,7 +55,7 @@ uv run pytest                    # 139개
 
 ## 현재 상태 (2026-10-15)
 
-- 테스트 139개 통과. 실제 Claude API·슬랙으로 실측 완료. 골든 세트 2차 평가 86%(24/28), 이후 노션 3문항(q26~q28) 통과. 단, 답변 문체를 바꾼 뒤 28문항 전체를 다시 돌리지는 않았다.
+- 테스트 141개 통과. 실제 Claude API·슬랙으로 실측 완료. 골든 세트 2차 평가 86%(24/28), 이후 노션 3문항(q26~q28) 통과. 단, 답변 문체를 바꾼 뒤 28문항 전체를 다시 돌리지는 않았다.
 - 비용은 SDK 보고값이 아니라 토큰 × 단가로 계산한다(`llm/pricing.py`). 경로별 실측과 월 비용 추정은 `docs/cost.md`.
 - **API 비용이 드는 작업(eval·ask)은 예상 금액을 먼저 사용자에게 말한다.** 전체 평가 1회 약 $0.85.
 - `.env` 입력 완료: Claude 키, 슬랙 봇·앱 토큰, GitHub App(ID·설치 ID·`secrets/github-app.pem`). GitHub App으로 law-watch 클론·인덱싱 확인됨(`data/`, main@31bcf1e). 확인 요청 채널(`ASKCODE_ESCALATION_CHANNEL`)도 설정됨.
@@ -65,7 +65,7 @@ uv run pytest                    # 139개
 - 정책·흐름 질문(policy·multi_hop)에 로직 흐름도: 모델은 ```flow 명세만 내고 렌더러가 회색조 SVG HTML을 그림(외부 렌더러 없음). 슬랙은 `flow-*.html` 업로드, CLI는 `data/diagrams/`. 추가 비용은 출력 약 450~770토큰·+$0.005~0.008/건(CLI 2건·슬랙 1건 실측). 슬랙 미리보기 확인 완료(`docs/screenshots/flowchart-slack.webp`). 상세는 `docs/flowchart.md`.
 - 답변 끝에 '💬 이어서 물어보기' 후속 질문 버튼 2~3개(에이전트가 "후속 질문:" 목록으로 같이 출력 → `extract_followups`로 떼어 버튼화). 답변당 출력 약 +50~100토큰.
 - 웹 콘솔 v1 구현(`askcode console`). 동기화 때 커밋별 파일 해시(`commit_files`)를 기록해 답의 최신성을 판단한다. P1(산출물 보관·도메인 FAQ·슬랙 기존 답 제안 등)은 미구현.
-- DB: 감사 로그 **영구 보존**(2026-10-16 결정). 스키마는 `PRAGMA user_version` + `store/db.py`의 `MIGRATIONS`(추가만, 현재 v4). 확인 필요 처리는 `askcode resolve`(append-only `resolutions`, 처리 뒤 새 👎·확인 요청이 오면 다시 열림). 백업·복구 확인·정리·가리기 명령 있음, 서버 밖 복사는 `ASKCODE_BACKUP_UPLOAD_CMD` 미설정.
+- DB: 감사 로그 **영구 보존**(2026-10-16 결정). 스키마는 `PRAGMA user_version` + `store/db.py`의 `MIGRATIONS`(추가만, 현재 v4). 확인 필요 처리는 콘솔의 처리 버튼 또는 `askcode resolve`(append-only `resolutions`, 처리 뒤 새 👎·확인 요청이 오면 다시 열림). 백업·복구 확인·정리·가리기 명령 있음, 서버 밖 복사는 `ASKCODE_BACKUP_UPLOAD_CMD` 미설정.
 - 메뉴 막대 앱(SwiftUI `macos/AskCodeBar`, 화면만 맡고 CLI를 부름). 맥북 호스트 모드(`host.py`, launchd `com.askcode.{bot,console,backup}`)와 봇 중복 실행 잠금(`data/serve.lock`). LLM 인증 경로는 `ASKCODE_LLM_PROVIDER`로 전환(`api` 기본 | `subscription`=로컬 `claude` CLI 구독 로그인을 하위 프로세스로, `llm/claude_cli.py`). `askcode provider api|subscription` 또는 메뉴 막대의 API|구독 토글로 바꾸고 봇이 켜져 있으면 봇만 재시작해 적용. 답에 실제 쓰인 경로는 `query_results.provider`(스키마 v3)에 기록돼 슬랙 메타 줄·콘솔 칩·앱 헤더에 표시된다. 구독 모드는 `max_budget_usd`를 넘기지 않는다(CLI가 리스트 단가로 세다 보니 일찍 끊김, `max_turns`만 제한). 구독으로 타인에게 서비스하는 것은 Anthropic 정책상 불가 — 로컬 PoC 전용.
 - 외부 조사 넘겨주기: 질문에 외부 조사 부분이 있으면 거절하지 않고 코드 부분은 답하고, 사외 AI에 붙여넣을 프롬프트를 붙인다. 스코핑 JSON의 `external`(추가 호출 없음) + 결정적 유출 필터(`pipeline/external.py`, 구조 인덱스 이름·식별자 모양). 전부 외부면 `kind: external`. 서비스 소개는 `repos.yaml`의 `public_summary`. 스코핑 JSON이 깨지면 1회 재시도(한도 2000토큰). 프롬프트가 붙은 답은 본문의 외부 리서치 메타 문장을 `strip_external_meta`로 지운다. q29 추가, CLI(구독 모드)로 프롬프트 첨부 확인, 슬랙은 미확인. 상세는 `docs/external-research.md`.
 - 남은 실패: q11(스코핑이 가끔 되묻기로 분류), q14(웹 기본 페이지 크기 6건 누락).

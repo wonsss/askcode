@@ -164,3 +164,35 @@ def test_resolve_removes_from_check_and_reopens_on_new_feedback(seeded):
     assert not st.resolve("nope", "ops")
     with pytest.raises(sqlite3.IntegrityError):
         st.execute("DELETE FROM resolutions")
+
+
+def test_console_resolve_button_flow_and_guards(seeded):
+    import re
+    st, data, ids = seeded
+    client = TestClient(create_app(data, lambda q, op, note, reopen: st.resolve(q, op, note, reopen=reopen)))
+    page = client.get("/check").text
+    token = re.search(r'name=csrf value="([0-9a-f]+)"', page).group(1)
+    qid = ids["sub2"]
+    form = {"csrf": token, "action": "resolve", "note": "  답 맞음,\n회신함 ", "back": "/check?source=slack"}
+    r = client.post(f"/q/{qid}/resolve", data=form, headers={"Cf-Access-Authenticated-User-Email": "pm@example.com"},
+                    follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/check?source=slack"
+    done = data.needs_check(resolved=True)[0]
+    assert done.id == qid and done.resolved["operator"] == "pm@example.com" and done.resolved["note"] == "답 맞음, 회신함"
+    assert "다시 열기" in client.get(f"/q/{qid}").text
+    # 보호 장치: 토큰 틀림, 다른 출처, 알 수 없는 동작, 외부로 돌려보내기
+    assert client.post(f"/q/{qid}/resolve", data={**form, "csrf": "x"}).status_code == 403
+    assert client.post(f"/q/{qid}/resolve", data=form, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert client.post(f"/q/{qid}/resolve", data=form, headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+    assert client.post(f"/q/{qid}/resolve", data={**form, "action": "drop"}).status_code == 400
+    r = client.post(f"/q/{qid}/resolve", data={**form, "action": "reopen", "back": "//evil.example"},
+                    follow_redirects=False)
+    assert r.headers["location"] == f"/q/{qid}" and qid in {x.id for x in data.needs_check()}
+    assert client.post("/q/nope/resolve", data=form).status_code == 404
+
+
+def test_console_without_resolver_has_no_buttons(seeded):
+    _, data, ids = seeded
+    client = TestClient(create_app(data))
+    assert "name=csrf" not in client.get("/check").text
+    assert client.post(f"/q/{ids['sub2']}/resolve", data={"action": "resolve"}).status_code == 403
