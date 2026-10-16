@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 """
 
-APPEND_ONLY_TABLES = ("queries", "query_results", "tool_calls", "citations", "feedback", "redactions")
+APPEND_ONLY_TABLES = ("queries", "query_results", "tool_calls", "citations", "feedback", "redactions", "resolutions")
 
 # 스키마 버전(PRAGMA user_version). SCHEMA는 버전 1의 기준 테이블이고, 이후 변경은 여기에 번호를 붙여 쌓는다.
 # 배포된 DB는 시작할 때 자기 버전보다 큰 마이그레이션만 순서대로 적용한다. 한 번 배포한 항목은 고치지 않는다.
@@ -151,6 +151,17 @@ CREATE TABLE IF NOT EXISTS redactions (
 """),
     (3, """
 ALTER TABLE query_results ADD COLUMN provider TEXT;    -- api | subscription, 이전 행은 NULL
+"""),
+    (4, """
+CREATE TABLE IF NOT EXISTS resolutions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  query_id TEXT NOT NULL REFERENCES queries(id),
+  ts REAL NOT NULL,
+  operator TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('resolve', 'reopen')),
+  note TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_resolutions_query ON resolutions(query_id, ts);
 """),
 ]
 SCHEMA_VERSION = max([1, *(v for v, _ in MIGRATIONS)])
@@ -251,6 +262,17 @@ BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END""")
             except Exception:
                 self._conn.execute("ROLLBACK")
                 raise
+        return True
+
+    def resolve(self, query_id: str, operator: str, note: str = "", reopen: bool = False) -> bool:
+        """확인 필요 항목을 처리됨(또는 다시 열림)으로 기록한다. 기록은 추가만 하고, 질문당 마지막 기록이 상태다."""
+        if not operator.strip():
+            raise ValueError("operator는 필수입니다")
+        with self._lock:
+            if not self._conn.execute("SELECT 1 FROM queries WHERE id=?", (query_id,)).fetchone():
+                return False
+            self._conn.execute("INSERT INTO resolutions(query_id, ts, operator, action, note) VALUES (?,?,?,?,?)",
+                               (query_id, time.time(), operator, "reopen" if reopen else "resolve", note))
         return True
 
     def execute(self, sql: str, params: tuple | dict = ()) -> sqlite3.Cursor:

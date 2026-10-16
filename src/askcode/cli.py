@@ -11,6 +11,7 @@
   askcode backup [--dest DIR]              감사 로그 백업 (+ ASKCODE_BACKUP_UPLOAD_CMD로 서버 밖 복사)
   askcode restore-check [백업 파일]         백업 복구 확인 (무결성·질문 수)
   askcode maintenance [--vacuum]           오래된 커밋 스냅숏·WAL 정리
+  askcode resolve <query_id…> [--note …] [--reopen] [--all]   확인 필요 항목을 처리됨으로 표시
   askcode redact <query_id> --reason "…"   질문 텍스트 가림 (개인정보 유입 시)
   askcode doctor [--online]                환경 점검 (도구·설정·인덱스, --online이면 연결까지)
 """
@@ -265,6 +266,32 @@ def cmd_redact(query_id: str, reason: str, operator: str | None) -> None:
     print(f"가림 완료: {query_id} (질문·답·도구 입력 텍스트). 행과 가림 기록은 남습니다. 처리자 {who}, 사유: {reason}")
 
 
+def cmd_resolve(query_ids: list[str], note: str, reopen: bool, all_open: bool, operator: str | None) -> None:
+    import getpass
+
+    from askcode.settings import Settings
+    from askcode.store.db import Store
+
+    s = Settings()
+    store = Store(s.db_path)  # 마이그레이션(v4 resolutions) 적용
+    if all_open:
+        if reopen or query_ids:
+            sys.exit("--all은 질문 id·--reopen과 함께 쓸 수 없습니다")
+        from askcode.console.data import ConsoleData
+        query_ids = [r.id for r in ConsoleData(s.db_path, "", "", Path("eval/results")).needs_check()]
+        if not query_ids:
+            print("처리할 확인 필요 항목이 없습니다.")
+            return
+    if not query_ids:
+        sys.exit("질문 id를 하나 이상 주거나 --all을 쓰세요")
+    who = operator or getpass.getuser()
+    missing = [q for q in query_ids if not store.resolve(q, who, note, reopen=reopen)]
+    done = len(query_ids) - len(missing)
+    print(f"{'다시 열기' if reopen else '처리됨'} {done}건 기록 (처리자 {who}{', 메모: ' + note if note else ''})")
+    if missing:
+        sys.exit("찾을 수 없는 질문: " + ", ".join(missing))
+
+
 def cmd_status(as_json: bool, check_claude: bool) -> None:
     """메뉴 막대 앱용 상태. 기본은 Claude를 부르지 않는다(--check-claude만 1토큰 호출)."""
     from askcode.app_status import collect
@@ -356,6 +383,12 @@ def main() -> None:
     rc.add_argument("path", nargs="?")
     mt = sub.add_parser("maintenance", help="오래된 커밋 스냅숏·WAL 정리 (감사 로그는 건드리지 않음)")
     mt.add_argument("--vacuum", action="store_true")
+    rs = sub.add_parser("resolve", help="확인 필요 항목을 처리됨으로 표시 (기록만 추가, 새 👎·확인 요청이 오면 다시 열림)")
+    rs.add_argument("query_ids", nargs="*")
+    rs.add_argument("--note", default="")
+    rs.add_argument("--reopen", action="store_true", help="처리됨을 취소하고 다시 확인 필요로")
+    rs.add_argument("--all", dest="all_open", action="store_true", help="지금 확인 필요 목록(슬랙, 최근 30일) 전부")
+    rs.add_argument("--operator")
     rd = sub.add_parser("redact", help="질문 하나의 텍스트를 가림 (개인정보 유입 시, 행은 남김)")
     rd.add_argument("query_id")
     rd.add_argument("--reason", required=True)
@@ -391,6 +424,8 @@ def main() -> None:
         cmd_restore_check(args.path)
     elif args.cmd == "maintenance":
         cmd_maintenance(args.vacuum)
+    elif args.cmd == "resolve":
+        cmd_resolve(args.query_ids, args.note, args.reopen, args.all_open, args.operator)
     elif args.cmd == "redact":
         cmd_redact(args.query_id, args.reason, args.operator)
     elif args.cmd == "status":

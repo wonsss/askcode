@@ -104,7 +104,11 @@ def chips(row: Row, domain_names: dict[str, str]) -> str:
     if row.confidence and row.has_answer:
         c.append(f'<span class="chip">{CONF_KO.get(row.confidence, row.confidence)}</span>')
     c += [f'<span class="chip">{e(domain_names.get(d, d))}</span>' for d in row.domains[:3]]
-    c += [f'<span class="chip bad">{e(CHECK_REASONS[r])}</span>' for r in row.check_reasons]
+    if row.resolved:
+        note = row.resolved.get("note") or ""
+        c.append(f'<span class="chip">✔︎ 처리됨{" · " + e(note[:30]) if note else ""}</span>')
+    else:
+        c += [f'<span class="chip bad">{e(CHECK_REASONS[r])}</span>' for r in row.check_reasons]
     if "up" in row.feedback:
         c.append('<span class="chip">👍</span>')
     return "".join(c)
@@ -246,6 +250,14 @@ def detail(row: Row, view: str, cites: list[dict], fresh: Freshness, latest: str
     fb_html = ("<ul>" + "".join(f"<li>{when(f['ts'])} {e(f['value'])} <span class='small muted'>{e(f['user_id'])}</span></li>"
                                  for f in fb_events) + "</ul>") if fb_events else '<p class="muted">없음</p>'
     reasons = "".join(f'<span class="chip bad">{e(CHECK_REASONS[r])}</span>' for r in row.check_reasons) or "없음"
+    if row.resolved:
+        rs = row.resolved
+        reasons += (f'<br><span class="chip">✔︎ 처리됨</span> {when(rs["ts"])} · {e(rs["operator"])}'
+                    + (f' · {e(rs["note"])}' if rs["note"] else "")
+                    + f'<br><span class="small muted">다시 열기: <code>uv run askcode resolve {e(row.id)} --reopen</code></span>')
+    elif row.check_reasons:
+        reasons += (f'<br><span class="small muted">처리했으면: <code>uv run askcode resolve {e(row.id)} --note "…"</code>'
+                    " (새 👎·확인 요청이 오면 다시 열려요)</span>")
     body = (head + f"<h2>확인 필요 사유</h2><p>{reasons}</p>"
             + f"<h2>스코핑</h2>{scope_html}<h2>처리</h2>{usage_html}"
             + f"<h2>근거 전체 (검증·제외)</h2>{cite_list(cites)}"
@@ -255,7 +267,7 @@ def detail(row: Row, view: str, cites: list[dict], fresh: Freshness, latest: str
     return page(row.question[:40], body, "search")
 
 
-def check_page(rows: list[Row], domain_names: dict[str, str], params: dict) -> str:
+def check_page(rows: list[Row], domain_names: dict[str, str], params: dict, resolved_count: int = 0) -> str:
     counts = {k: sum(1 for r in rows if k in r.check_reasons) for k in CHECK_REASONS}
     reason = params.get("reason", "")
     shown = [r for r in rows if not reason or reason in r.check_reasons]
@@ -264,7 +276,14 @@ def check_page(rows: list[Row], domain_names: dict[str, str], params: dict) -> s
         for k, v in CHECK_REASONS.items() if counts[k])
     src = params.get("source", "slack")
     other = "all" if src == "slack" else "slack"
-    body = ("<h1>확인 필요</h1><p class='muted'>최근 30일, 낮은 확신도·👎·확인 요청·오류·한도 도달·범위 미스가 있는 질문이에요.</p>"
+    showing_resolved = params.get("resolved") == "1"
+    toggle = ({**params, "resolved": ""} if showing_resolved else {**params, "resolved": "1"})
+    toggle_label = "처리 안 된 건 보기" if showing_resolved else f"처리된 건 보기 ({resolved_count})"
+    body = ("<h1>확인 필요" + (" — 처리됨" if showing_resolved else "") + "</h1>"
+            "<p class='muted'>최근 30일, 낮은 확신도·👎·확인 요청·오류·한도 도달·범위 미스가 있는 질문이에요. "
+            "처리한 건은 <code>askcode resolve &lt;id&gt;</code>로 표시하면 여기서 빠져요.</p>"
+            + f'<p class="small"><a href="/check?{urlencode(toggle)}">'
+              f'{toggle_label}</a></p>'
             + (f"<p>{filt} <a class='small' href='/check'>전체</a></p>" if filt else "")
             + f'<p class="small"><a href="/check?{urlencode({**params, "source": other})}">'
               f'{"평가·CLI 질문도 보기" if src == "slack" else "슬랙만 보기"}</a></p>'

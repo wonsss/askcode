@@ -84,6 +84,22 @@ ASKCODE_BACKUP_UPLOAD_CMD=aws s3 cp {file} s3://askcode-backups/
 
 **연습:** 파일럿 시작 전에 한 번, 이후 분기마다 한 번 다른 폴더에서 4~5단계를 해 본다.
 
+## 확인 필요 처리 (`askcode resolve`)
+
+콘솔·메뉴 막대의 "확인 필요"는 최근 30일 슬랙 질문 중 확신도 낮음·👎·확인 요청·오류·한도 도달·범위 미스가 있는 건이다. 살펴보고 조치했으면 처리됨으로 표시해 목록과 숫자에서 뺀다.
+
+```bash
+uv run askcode resolve <query_id> --note "답 맞음, 질문자에게 회신"
+uv run askcode resolve <id1> <id2> --note "크레딧 부족 때 오류, 재질문 안내"
+uv run askcode resolve --all --note "10-16 일괄 점검"   # 지금 목록 전부
+uv run askcode resolve <query_id> --reopen              # 되돌리기
+```
+
+- 기록은 `resolutions` 테이블에 **추가만** 한다(append-only). 질문별 마지막 기록이 상태다.
+- 처리한 뒤 새 👎나 확인 요청이 들어오면 자동으로 다시 열린다.
+- 콘솔 확인 필요 화면의 "처리된 건 보기"에서 누가·언제·어떤 메모로 처리했는지 본다. 질문 상세에 처리 명령이 그대로 적혀 있다.
+- 콘솔은 읽기 전용이라 처리 버튼이 없다. 처리는 운영자가 CLI로 한다.
+
 ## 개인정보가 들어왔을 때 (`askcode redact`)
 
 ```bash
@@ -99,7 +115,7 @@ uv run askcode redact <query_id> --reason "질문에 실명·연락처 포함"
 
 ## 스키마 변경
 
-- DB에는 스키마 버전(`PRAGMA user_version`)이 있다. 현재 v3(v1 기준 테이블 + v2 가림 기록 + v3 `query_results.provider` 컬럼 — 답변에 쓰인 인증 경로 api|subscription).
+- DB에는 스키마 버전(`PRAGMA user_version`)이 있다. 현재 v4(v1 기준 테이블 + v2 가림 기록 + v3 `query_results.provider` 컬럼 — 답변에 쓰인 인증 경로 api|subscription + v4 처리 기록 `resolutions`).
 - 테이블을 바꿀 때는 `src/askcode/store/db.py`의 `MIGRATIONS`에 번호를 붙여 **추가만** 한다. 이미 배포한 항목은 고치지 않는다.
 - 봇·콘솔·명령이 시작할 때 자기 버전보다 큰 마이그레이션만 순서대로 적용한다.
 - 바꾸기 전에 `askcode backup`을 먼저 한다.

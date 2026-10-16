@@ -139,3 +139,28 @@ def test_compare_runs_orders_regressions_first():
 def test_thinking_blocks_public_note():
     assert PUBLIC_NOTE in str(thinking_blocks("⏳", public_note=True))
     assert PUBLIC_NOTE not in str(thinking_blocks("⏳"))
+
+
+def test_resolve_removes_from_check_and_reopens_on_new_feedback(seeded):
+    st, data, ids = seeded
+    before = data.stats(7)["check"]
+    assert st.resolve(ids["sub2"], "ops", "기획서 수정 요청함")
+    open_ids = {r.id for r in data.needs_check()}
+    done = data.needs_check(resolved=True)
+    assert ids["sub2"] not in open_ids and [r.id for r in done] == [ids["sub2"]]
+    assert done[0].resolved["note"] == "기획서 수정 요청함" and data.stats(7)["check"] == before - 1
+    client = TestClient(create_app(data))
+    assert "처리된 건 보기 (1)" in client.get("/check").text
+    assert "기획서 수정 요청함" in client.get("/check?resolved=1").text
+    assert "✔︎ 처리됨" in client.get(f"/q/{ids['sub2']}").text
+    # 처리 뒤 새 👎가 오면 다시 열린다
+    st.log_feedback(ids["sub2"], "U3", "down")
+    assert ids["sub2"] in {r.id for r in data.needs_check()}
+    # 다시 처리 → 명시적으로 다시 열기
+    st.resolve(ids["sub2"], "ops")
+    assert ids["sub2"] not in {r.id for r in data.needs_check()}
+    st.resolve(ids["sub2"], "ops", reopen=True)
+    assert ids["sub2"] in {r.id for r in data.needs_check()}
+    assert not st.resolve("nope", "ops")
+    with pytest.raises(sqlite3.IntegrityError):
+        st.execute("DELETE FROM resolutions")

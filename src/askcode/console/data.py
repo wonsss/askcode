@@ -75,6 +75,7 @@ class Row:
     scope: dict
     feedback: list[str]
     widened: bool
+    resolved: dict | None = None  # 처리됨이면 {ts, operator, note}. 처리 뒤 새 👎·확인 요청이 오면 다시 열린다
 
     @property
     def domains(self) -> list[str]:
@@ -138,6 +139,7 @@ class ConsoleData:
         for f in self.q("SELECT query_id, value FROM feedback"):
             fb.setdefault(f["query_id"], []).append(f["value"])
         widened = {r["query_id"] for r in self.q("SELECT DISTINCT query_id FROM tool_calls WHERE tool='widen_scope'")}
+        resolved = self._resolved()
         out = []
         for r in self.q(sql, tuple(params)):
             try:
@@ -147,8 +149,24 @@ class ConsoleData:
             out.append(Row(r["id"], r["ts"], r["source"], r["user_id"], r["channel"], r["question"], r["commit_sha"],
                            r["status"], r["route"], r["provider"], r["confidence"], r["cost_usd"] or 0.0,
                            r["duration_ms"] or 0, r["error"], r["answer"], scope, fb.get(r["id"], []),
-                           r["id"] in widened))
+                           r["id"] in widened, resolved.get(r["id"])))
         return out
+
+    def _resolved(self) -> dict[str, dict]:
+        """질문별 처리 상태. 마지막 기록이 resolve이고, 그 뒤에 새 👎·확인 요청이 없을 때만 처리됨."""
+        try:
+            recs = self.q("SELECT query_id, ts, operator, action, note FROM resolutions ORDER BY ts, id")
+        except sqlite3.OperationalError:  # 마이그레이션 전 DB(v3 이하)
+            return {}
+        last: dict[str, dict] = {}
+        for r in recs:
+            last[r["query_id"]] = dict(r)
+        late_fb = {}
+        for f in self.q("SELECT query_id, MAX(ts) AS ts FROM feedback WHERE value IN ('down', 'escalate') GROUP BY query_id"):
+            late_fb[f["query_id"]] = f["ts"]
+        return {qid: {"ts": r["ts"], "operator": r["operator"], "note": r["note"]}
+                for qid, r in last.items()
+                if r["action"] == "resolve" and late_fb.get(qid, 0) <= r["ts"]}
 
     def search(self, query: str = "", *, source: str | None = "slack", domain: str = "", route: str = "",
                confidence: str = "", feedback: str = "", days: int = 0) -> list[Row]:
@@ -257,11 +275,13 @@ class ConsoleData:
             "cost_all": sum(r.cost for r in all_rows),
             "cost_slack": sum(r.cost for r in slack),
             "by_route": {k: sum(1 for r in slack if r.route == k) for k in ROUTE_KO},
-            "check": sum(1 for r in slack if r.check_reasons),
+            "check": sum(1 for r in slack if r.check_reasons and not r.resolved),
         }
 
-    def needs_check(self, source: str = "slack", days: int = 30) -> list[Row]:
-        return [r for r in self.rows(source, time.time() - days * 86400) if r.check_reasons]
+    def needs_check(self, source: str = "slack", days: int = 30, resolved: bool = False) -> list[Row]:
+        """확인 필요 목록. 기본은 아직 처리 안 된 건만, resolved=True면 처리된 건만."""
+        return [r for r in self.rows(source, time.time() - days * 86400)
+                if r.check_reasons and bool(r.resolved) == resolved]
 
     # ---------- 평가 ----------
     def eval_runs(self) -> list[dict]:

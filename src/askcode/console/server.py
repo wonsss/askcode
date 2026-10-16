@@ -14,7 +14,7 @@ from askcode.console.data import ConsoleData, compare_runs
 
 CSP = ("default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'self'; "
        "base-uri 'none'; frame-ancestors 'none'")
-FILTER_KEYS = ("q", "domain", "route", "confidence", "feedback", "days", "source", "ops", "reason")
+FILTER_KEYS = ("q", "domain", "route", "confidence", "feedback", "days", "source", "ops", "reason", "resolved")
 
 
 class SecurityHeaders(BaseHTTPMiddleware):
@@ -58,7 +58,10 @@ def create_app(data: ConsoleData) -> Starlette:
 
     async def check(request: Request):
         p = _params(request)
-        return HTMLResponse(views.check_page(data.needs_check(p.get("source", "slack")), names, p))
+        src = p.get("source", "slack")
+        done = data.needs_check(src, resolved=True)
+        rows = done if p.get("resolved") == "1" else data.needs_check(src)
+        return HTMLResponse(views.check_page(rows, names, p, len(done)))
 
     async def evals(request: Request):
         return HTMLResponse(views.eval_page(data.eval_runs()))

@@ -65,6 +65,7 @@ uv run askcode stats
 uv run askcode backup                # 감사 로그 백업 (+ 서버 밖 복사)
 uv run askcode restore-check         # 최근 백업 복구 확인
 uv run askcode maintenance           # 오래된 커밋 스냅숏·WAL 정리
+uv run askcode resolve <query_id…> [--note "…"] [--all]   # 확인 필요 항목을 처리됨으로 표시 (--reopen으로 되돌림)
 uv run askcode redact <query_id> --reason "…"   # 개인정보 유입 시 텍스트 가림
 uv run pytest
 ```
