@@ -18,6 +18,10 @@ class RepoConfig:
     include_exceptions: tuple[str, ...] = ()
     context_files: tuple[str, ...] = field(default_factory=tuple)
     """시스템 프롬프트에 레포 개요로 넣을 파일(예: CLAUDE.md)."""
+    public_summary: str = ""
+    """외부 조사 프롬프트 첫 줄에 넣는 서비스 소개. 사외로 나가므로 공개해도 되는 말만 쓴다."""
+    external_blocklist: tuple[str, ...] = ()
+    """외부 조사 프롬프트에 나오면 그 항목을 빼는 내부 용어(레포 이름은 자동 포함)."""
 
     @property
     def web_base(self) -> str:
@@ -41,6 +45,8 @@ def load_repos(config_dir: Path) -> list[RepoConfig]:
                 exclude=tuple(exclude),
                 include_exceptions=tuple(include_exceptions),
                 context_files=tuple(item.get("context_files", [])),
+                public_summary=item.get("public_summary", ""),
+                external_blocklist=tuple(item.get("external_blocklist", [])),
             )
         )
     if not repos:

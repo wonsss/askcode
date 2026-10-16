@@ -75,6 +75,7 @@ def cmd_ask(question: str, domains: str | None, image: str | None = None) -> Non
         print(f"[{a.status}] {a.body}")
         for did, name in a.options:
             print(f"  - {did}: {name}   (askcode ask \"{question}\" --domains {did})")
+        _print_external(a)
         print(f"\n비용 ${a.cost_usd:.4f}")
         return
     scope = ",".join(a.scope.domains) if a.scope and a.scope.domains else "전체"
@@ -97,6 +98,7 @@ def cmd_ask(question: str, domains: str | None, image: str | None = None) -> Non
         print(f"\n{'🧭 흐름도' if flow else '🖼 변경안 (원본 스크린샷과 비교)' if a.comparison else '🖼 와이어프레임'}: {out}")
     elif a.route == "wireframe":
         print("\n⚠️ 와이어프레임 HTML이 없습니다")
+    _print_external(a)
     if a.followups:
         print("\n이어서 물어보기")
         for q in a.followups:
@@ -105,6 +107,17 @@ def cmd_ask(question: str, domains: str | None, image: str | None = None) -> Non
         print("\n⚙ 일부 값은 설정·환경값에 따라 달라질 수 있음")
     if a.error:
         print(f"\n오류: {a.error}", file=sys.stderr)
+
+
+def _print_external(a) -> None:
+    from askcode.pipeline.external import EXTERNAL_DROPPED_ONLY
+
+    if a.external_prompt:
+        print("\n🌐 외부 조사용 프롬프트 (다른 AI에 붙여넣기, 붙여넣기 전에 내용 확인)\n" + "-" * 40)
+        print(a.external_prompt)
+        print("-" * 40)
+    elif a.external_dropped:
+        print(f"\n🌐 {EXTERNAL_DROPPED_ONLY}")
 
 
 def cmd_eval(ids: str | None, limit: int | None, concurrency: int) -> None:

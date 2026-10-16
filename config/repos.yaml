@@ -17,6 +17,9 @@ repos:
     url: https://github.com/wonsss/law-watch
     ref: main
     description: 국회 입법 기록 추적 서비스 — Next.js 웹, Expo 하이브리드 앱, NestJS API·워커 모노레포
+    # 외부 조사 프롬프트(사외 AI에 붙여넣는 글)에 들어간다. 공개해도 되는 말만 쓴다.
+    public_summary: 국회 입법 기록을 보여 주는 웹·모바일 서비스
+    external_blocklist: [lawwatch]
     context_files:
       - CLAUDE.md
     exclude:

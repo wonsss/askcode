@@ -45,7 +45,7 @@ def is_change_request(question: str) -> bool:
 
 
 KINDS = ("simple", "policy", "screen_hybrid", "multi_hop", "decision", "broad", "wireframe", "unsupported",
-         "out_of_scope")
+         "out_of_scope", "external")
 
 
 @dataclass(frozen=True)
@@ -114,6 +114,7 @@ class Scope:
     keywords: list[str] = field(default_factory=list)
     reason: str = ""
     forced: bool = False
+    external: dict | None = None  # {"goal", "topics"} — 외부 조사로 넘길 부분 (external.py가 프롬프트로 만든다)
 
     def to_json(self) -> str:
         return json.dumps(self.__dict__, ensure_ascii=False)
@@ -128,6 +129,7 @@ SCOPE_SYSTEM = """\
  "clarify_question": "되물을 질문 또는 null",
  "options": ["도메인 id", ...],           // 되물을 때 보여줄 후보 2~5개
  "keywords": ["코드 검색에 쓸 영문 식별자·한국어 문구", ...],
+ "external": {{"goal": "외부 조사 목적 한 줄", "topics": ["외부에서 조사할 질문", ...]}} 또는 null,
  "reason": "한 줄 근거"}}
 
 유형 기준:
@@ -140,9 +142,20 @@ SCOPE_SYSTEM = """\
 - wireframe: 새 기능·화면의 와이어프레임·화면 초안·목업을 만들어 달라는 요청. domains에는 참고할 기존 화면의 도메인을 넣는다.
   화면 스크린샷이 첨부됐고 그 화면에 기능·요소를 추가·변경하면 어떻게 되는지 묻는 요청도 wireframe이다
 - unsupported: 코드 수정·PR·배포·문서 작성·번역처럼 AskCode가 하지 않는 작업 요청 (와이어프레임은 제외)
-- out_of_scope: 실제 사용자 개인정보·운영 DB 데이터·비밀값 요청, 코드베이스와 무관한 질문
+- out_of_scope: 실제 사용자 개인정보·운영 DB 데이터·비밀값 요청, 서비스·기획과 무관한 질문
+- external: 질문 전체가 외부 조사(타 서비스 사례·비교, 외부 API·데이터 소스·라이브러리 조사, 법·저작권 일반)일 때
 
-broad이면 탐색하지 말고 clarify_question과 options를 채웁니다.
+"이 기능 개발 가능할까", "어떻게 만들 수 있을까" 같은 실현 가능성 질문은 broad가 아니라 multi_hop입니다
+(기존 코드에서 쓸 수 있는 데이터·구조·붙일 지점을 찾는 질문).
+
+external 필드: 질문에 외부 조사가 필요한 부분이 있으면 채우고, 없으면 null입니다.
+질문 일부만 외부 조사라면 kind는 나머지(코드·문서로 답할 부분) 기준으로 정하고 external만 채웁니다.
+external은 사용자가 사외 AI에 붙여넣는 글이 됩니다. 일반적인 한국어로만 쓰고 파일 경로·코드 식별자·API 경로·
+내부 화면 이름·서비스 이름·미공개 정책 값은 절대 넣지 않습니다. topics는 1~5개, 각각 60자 이내 한 문장 질문입니다.
+문자열 안에 큰따옴표(")를 쓰지 않습니다.
+
+broad이면 탐색하지 말고 clarify_question과 options를 채웁니다. clarify_question에는 범위를 좁히는 질문만 쓰고
+외부 조사 안내는 넣지 않습니다(따로 안내됩니다).
 
 도메인 목록:
 {domains}
@@ -163,7 +176,15 @@ def parse_scope(text: str, valid_ids: set[str]) -> Scope:
         options=[x for x in d.get("options") or [] if x in valid_ids][:5],
         keywords=[str(x) for x in d.get("keywords") or []][:8],
         reason=str(d.get("reason") or "")[:200],
+        external=_parse_external(d.get("external")),
     )
+
+
+def _parse_external(raw) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    topics = [str(t) for t in raw.get("topics") or [] if isinstance(t, (str, int, float)) and str(t).strip()]
+    return {"goal": str(raw.get("goal") or ""), "topics": topics[:5]} if topics else None
 
 
 @dataclass
@@ -175,7 +196,7 @@ class Route:
 
 def apply_screenshot_rule(scope: Scope, question: str, has_image: bool) -> Scope:
     """스크린샷 + 변경·추가 문형은 모델 분류와 무관하게 와이어프레임(변경안 목업)으로 보낸다. 거절 유형은 건드리지 않는다."""
-    if has_image and scope.kind not in ("out_of_scope", "unsupported", "wireframe") and is_change_request(question):
+    if has_image and scope.kind not in ("out_of_scope", "unsupported", "external", "wireframe") and is_change_request(question):
         scope.kind = "wireframe"
         scope.reason = (scope.reason + " · " if scope.reason else "") + "스크린샷 + 변경 요청 → 변경안 목업"
     return scope
@@ -186,7 +207,7 @@ def route_for(scope: Scope) -> Route:
         return Route("wireframe", "large", 12)
     if scope.forced:
         return Route("agent", "large", 12) if scope.kind in ("multi_hop", "decision", "broad") else Route("simple", "small", 8)
-    if scope.kind in ("out_of_scope", "unsupported"):
+    if scope.kind in ("out_of_scope", "unsupported", "external"):
         return Route("refuse", "small", 0)
     if scope.kind == "wireframe":
         return Route("wireframe", "large", 12)
@@ -195,6 +216,10 @@ def route_for(scope: Scope) -> Route:
     if scope.kind in ("simple", "screen_hybrid") and scope.confidence != "low":
         return Route("simple", "small", 8)
     return Route("agent", "large", 12)
+
+
+# 한국어 JSON은 글자당 토큰이 많다. external까지 채우면 1,400토큰을 넘은 실측이 있어 여유를 둔다(API 모드에서 잘림 방지)
+SCOPE_MAX_TOKENS = 2000
 
 
 class Scoper:
@@ -208,8 +233,17 @@ class Scoper:
         prompt = (f"질문: {question}" + (f"\n용어 힌트: {json.dumps(hits, ensure_ascii=False)}" if hits else "")
                   + ("\n첨부: 앱/웹 화면 스크린샷 1장" if has_image else ""))
         try:
-            comp = await self.llm.complete(prompt, tier="small", cache_prefix=self._system, max_tokens=800)
-            scope = parse_scope(comp.text, {d.id for d in self.map.domains})
+            comp = await self.llm.complete(prompt, tier="small", cache_prefix=self._system, max_tokens=SCOPE_MAX_TOKENS)
+            try:
+                scope = parse_scope(comp.text, {d.id for d in self.map.domains})
+            except ValueError as exc:
+                # JSON이 깨지면 한 번 더 묻는다(약 $0.003). 실패해 범위 없이 대형 에이전트로 가면 수십 배가 든다
+                log.warning("scope json invalid (%s), retrying once: %.200s", exc, comp.text)
+                first = comp
+                comp = await self.llm.complete(prompt, tier="small", cache_prefix=self._system, max_tokens=SCOPE_MAX_TOKENS)
+                for f in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"):
+                    setattr(comp, f, getattr(comp, f) + getattr(first, f))
+                scope = parse_scope(comp.text, {d.id for d in self.map.domains})
             return scope, comp
         except Exception as exc:
             if is_fatal_api_error(exc):

@@ -202,3 +202,21 @@ async def test_effort_follows_route_tier(store, tools, repo_cfg, repo_dir):
                         scoper=FakeScoper(Scope(kind="multi_hop", domains=["bills"], confidence="high")))
     await svc.answer("의안 상세에서 웹 메시지는?")
     assert runner.calls[0].effort == "medium"
+
+
+async def test_scoper_retries_once_on_broken_json():
+    from askcode.llm.complete import Completion
+    from askcode.pipeline.scoping import Scoper
+
+    class TwoShot:
+        def __init__(self):
+            self.n = 0
+
+        async def complete(self, prompt, tier="small", cache_prefix=None, max_tokens=800):
+            self.n += 1
+            text = '{"kind": "multi_hop", "external": {"topics": ["a" "b"]}}' if self.n == 1 else '{"kind": "simple", "domains": ["bills"]}'
+            return Completion(text, "haiku", 10, 20, 0, 0)
+
+    llm = TwoShot()
+    scope, comp = await Scoper(llm, DMAP).scope("의안 상세는?")
+    assert llm.n == 2 and scope.kind == "simple" and comp.output_tokens == 40

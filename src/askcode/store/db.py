@@ -323,6 +323,10 @@ BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END""")
                 self._conn.execute("ROLLBACK")
                 raise
 
+    def structure_names(self, repo: str) -> list[tuple[str, str | None]]:
+        """구조 맵의 (key, label). 외부 조사 프롬프트에서 내부 이름을 거를 때 쓴다."""
+        return [(r["key"], r["label"]) for r in self.execute("SELECT key, label FROM structure WHERE repo=?", (repo,))]
+
     # 문서
     def replace_docs(self, source: str, files: list[dict], chunks: list[dict]) -> None:
         """source 단위로 문서를 통째로 교체한다. files: path,title,url,updated_at,lines,body / chunks: path,title,heading,url,updated_at,start_line,end_line,text"""

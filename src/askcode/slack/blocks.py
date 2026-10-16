@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from askcode.pipeline.answer import Answer, Citation
+from askcode.pipeline.external import EXTERNAL_DROPPED_ONLY, EXTERNAL_NOTE
 
 CONFIDENCE_LABEL = {"high": "🟢 확신도 높음", "medium": "🟡 확신도 보통", "low": "🔴 확신도 낮음 · 확인 필요"}
 SOURCE_LABEL = {"code": "코드", "doc": "문서", "notion": "노션", "slack": "슬랙"}
@@ -73,6 +74,19 @@ def thinking_blocks(text: str = "⏳ 코드를 확인하고 있어요…", publi
     return [{"type": "context", "elements": elements}]
 
 
+def external_blocks(a: Answer, heading: bool = True) -> list[dict]:
+    """외부 조사 프롬프트. 코드 블록이라 슬랙에서 한 번에 복사할 수 있다."""
+    if not a.external_prompt:
+        if a.external_dropped:
+            return [{"type": "context", "elements": [{"type": "mrkdwn", "text": f"🌐 {EXTERNAL_DROPPED_ONLY}"}]}]
+        return []
+    title = "*🌐 외부 조사가 필요한 부분*\n" if heading else ""
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"{title}{EXTERNAL_NOTE}"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"```{a.external_prompt[:MAX_SECTION - 6]}```"}},
+    ]
+
+
 def clarify_blocks(a: Answer) -> list[dict]:
     buttons = [
         {"type": "button", "text": {"type": "plain_text", "text": name[:70]}, "action_id": f"clarify_pick_{i}",
@@ -86,10 +100,13 @@ def clarify_blocks(a: Answer) -> list[dict]:
         {"type": "context", "elements": [{"type": "mrkdwn",
                                           "text": "범위를 좁히면 더 정확하고 빠르게 답할 수 있어요. 범위를 알려주시면 탐색을 시작할게요."}]},
         {"type": "actions", "elements": buttons},
+        *external_blocks(a),
     ]
 
 
 def refuse_blocks(a: Answer) -> list[dict]:
+    if a.route == "external":
+        return [{"type": "section", "text": {"type": "mrkdwn", "text": f"🌐 {a.body}"}}, *external_blocks(a, heading=False)]
     return [{"type": "section", "text": {"type": "mrkdwn", "text": f"🚫 {a.body}"}}]
 
 
@@ -134,6 +151,7 @@ def answer_blocks(a: Answer, note: str | None = None) -> list[dict]:
         notes.append("처음 정한 범위 밖까지 찾아서 답했어요.")
     if notes:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " ".join(notes)}]})
+    blocks.extend(external_blocks(a))
     blocks.extend(followup_blocks(a))
     blocks.append({
         "type": "actions",

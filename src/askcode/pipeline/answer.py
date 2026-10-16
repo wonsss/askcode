@@ -16,6 +16,9 @@ from pathlib import Path
 from askcode.agent.base import AgentRequest, AgentRunner, ToolSpec
 from askcode.config import RepoConfig
 from askcode.llm.pricing import estimate_cost
+from askcode.pipeline.external import (
+    EXTERNAL_ONLY_NO_PROMPT, EXTERNAL_ONLY_TEXT, build_external_prompt, internal_terms,
+)
 from askcode.pipeline.flowchart import FlowSpecError, extract_flow, flow_filename, parse_flow, render_flow
 from askcode.pipeline.prompts import (
     build_change_mockup_question, build_question, build_system_prompt, build_wireframe_question,
@@ -49,6 +52,11 @@ DEV_NOTE_PATH_RE = re.compile(r"`([\w@.\-\[\]()가-힣]+(?:/[\w@.\-\[\]()가-힣
 LIMIT_TEXT = ("질문 하나에 쓸 수 있는 탐색 한도(비용·횟수)에 도달해 답을 끝맺지 못했어요. "
               "질문을 더 좁혀서 다시 물어봐 주세요. (예: 화면 하나, 조건 하나)")
 LIMIT_ERRORS = ("error_max_budget_usd", "error_max_turns")
+EXTERNAL_AGENT_NOTE = (
+    "- 외부 조사 항목(시스템이 답 아래에 사외 AI용 조사 프롬프트로 따로 붙입니다): {topics}\n"
+    "  이 항목은 답하지 않습니다. 일반론·업계 관행·흔한 방식·추정 단락을 쓰지 않고, \"외부 자료를 조회하지 못했다\"는 말이나"
+    " 확인 필요 항목에도 넣지 않습니다. 코드·문서로 확인한 내용만 씁니다.\n"
+)
 UNAVAILABLE_TEXT = "지금은 AI 모델을 호출할 수 없어 답하지 못했어요(크레딧·인증 문제). 관리자에게 알려 주세요."
 
 
@@ -112,6 +120,8 @@ class Answer:
     comparison: bool = False  # 스크린샷 기반 변경안 목업 (원본 스크린샷과 비교)
     vision_cost_usd: float = 0.0  # 스크린샷 문구 추출 비용 (cost_usd에 포함)
     provider: str | None = None  # api | subscription — 슬랙 메타 줄에 표시
+    external_prompt: str | None = None  # 사외 AI에 붙여넣을 외부 조사 프롬프트 (내부 식별자 필터 통과분)
+    external_dropped: int = 0  # 내부 정보가 섞일 수 있어 뺀 조사 항목 수 (전부 빠지면 prompt 없이 안내만)
 
 
 def _split_evidence(text: str) -> tuple[str, str]:
@@ -341,13 +351,26 @@ class AnswerService:
             scope = Scope(kind="multi_hop", domains=forced_domains, confidence="high", forced=True, reason="사용자가 범위 선택")
             if self.scoper:
                 s2, comp = await self.scoper.scope(question, **image_kw)
-                scope.kind, scope.keywords, scope_cost = s2.kind if s2.kind not in ("broad", "out_of_scope", "unsupported") else "multi_hop", s2.keywords, self._small_cost(comp)
+                scope.kind, scope.keywords, scope_cost = s2.kind if s2.kind not in ("broad", "out_of_scope", "unsupported", "external") else "multi_hop", s2.keywords, self._small_cost(comp)
+                scope.external = s2.external
         elif self.scoper:
             scope, comp = await self.scoper.scope(question, **image_kw)
             scope_cost = self._small_cost(comp)
         else:
             scope = Scope(kind="multi_hop", confidence="low", reason="스코핑 미사용")
         return apply_screenshot_rule(scope, question, has_image), scope_cost
+
+    def _external(self, scope: Scope) -> tuple[str | None, int]:
+        """스코핑의 외부 조사 부분을 붙여넣기용 프롬프트로. 개인정보·비밀값 거절(out_of_scope)에는 만들지 않는다."""
+        if not scope.external or scope.kind in ("out_of_scope", "unsupported"):
+            return None, 0
+        terms = internal_terms(self.store.structure_names(self.repo.name), (self.repo.name, *self.repo.external_blocklist))
+        ep = build_external_prompt(scope.external, self.repo.public_summary, terms)
+        if not ep:
+            return None, 0
+        if ep.dropped:
+            scope.reason += f" · 외부 조사 {len(ep.dropped)}개 항목 제외(내부 식별자)"
+        return ep.text or None, len(ep.dropped)
 
     async def answer(self, question: str, source: str = "cli", user_id: str | None = None,
                      channel: str | None = None, thread_ts: str | None = None,
@@ -371,11 +394,14 @@ class AnswerService:
         scope_cost += vision_cost
         route = route_for(scope) if (self.scoper or forced_domains is not None) else Route("agent", "large", self.max_turns)
         comparison = route.name == "wireframe" and has_image
+        external_prompt, external_dropped = self._external(scope)
 
         # 2) 거절·되묻기는 에이전트 없이 끝낸다
         if route.name in ("refuse", "clarify"):
             if route.name == "refuse":
-                body, options = (UNSUPPORTED_TEXT if scope.kind == "unsupported" else REFUSE_TEXT), []
+                external_only = EXTERNAL_ONLY_TEXT if external_prompt else EXTERNAL_ONLY_NO_PROMPT
+                body = {"unsupported": UNSUPPORTED_TEXT, "external": external_only}.get(scope.kind, REFUSE_TEXT)
+                options = []
             else:
                 ids = self.domain_map.clarify_options(scope, question) if self.domain_map else []
                 options = [(d.id, d.name) for d in (self.domain_map.get(i) for i in ids) if d] if self.domain_map else []
@@ -383,8 +409,10 @@ class AnswerService:
             self.store.log_result(query_id, QueryResult(status=route.name, answer=body, confidence=None, model=self.models.get("small"),
                                                         cost_usd=scope_cost, scope=scope.to_json(), route=route.name,
                                                         provider=self.provider))
-            return Answer(query_id, body, [], "low", commit, status=route.name, route=route.name, scope=scope,
-                          options=options, cost_usd=scope_cost, vision_cost_usd=vision_cost, provider=self.provider)
+            return Answer(query_id, body, [], "low", commit, status=route.name,
+                          route="external" if scope.kind == "external" else route.name, scope=scope,
+                          options=options, cost_usd=scope_cost, vision_cost_usd=vision_cost, provider=self.provider,
+                          external_prompt=external_prompt, external_dropped=external_dropped)
 
         # 3) 에이전트
         session = ToolSession()
@@ -399,6 +427,9 @@ class AnswerService:
             extra_context = screenshot_context(screenshot.texts, screenshot.description)
         if extra_context:
             extra += f"- 첨부 맥락: {extra_context}\n"
+        if scope.external:
+            # 외부 조사 부분은 시스템이 프롬프트로 따로 붙인다. 에이전트가 일반론으로 메우면 근거 없는 내용이 섞인다
+            extra += EXTERNAL_AGENT_NOTE.format(topics="; ".join(scope.external["topics"]))
         if comparison:
             prompt = build_change_mockup_question(question, scope.domains, scope.keywords, screenshot_block(screenshot), extra)
         elif route.name == "wireframe":
@@ -483,4 +514,5 @@ class AnswerService:
                       config_dependent=bool(cited_paths & session.config_dependent), tool_calls=len(resp.tool_calls),
                       domain_names=[d.name for d in (self.domain_map.get(i) for i in scope.domains) if d] if self.domain_map else [],
                       attachment=attachment, attachment_kind=attachment_kind, followups=followups,
-                      comparison=comparison, vision_cost_usd=vision_cost, provider=self.provider)
+                      comparison=comparison, vision_cost_usd=vision_cost, provider=self.provider,
+                      external_prompt=external_prompt, external_dropped=external_dropped)
