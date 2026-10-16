@@ -17,7 +17,7 @@ from askcode.agent.base import AgentRequest, AgentRunner, ToolSpec
 from askcode.config import RepoConfig
 from askcode.llm.pricing import estimate_cost
 from askcode.pipeline.external import (
-    EXTERNAL_ONLY_NO_PROMPT, EXTERNAL_ONLY_TEXT, build_external_prompt, internal_terms,
+    EXTERNAL_ONLY_NO_PROMPT, EXTERNAL_ONLY_TEXT, build_external_prompt, internal_terms, strip_external_meta,
 )
 from askcode.pipeline.flowchart import FlowSpecError, extract_flow, flow_filename, parse_flow, render_flow
 from askcode.pipeline.prompts import (
@@ -55,7 +55,7 @@ LIMIT_ERRORS = ("error_max_budget_usd", "error_max_turns")
 EXTERNAL_AGENT_NOTE = (
     "- 외부 조사 항목(시스템이 답 아래에 사외 AI용 조사 프롬프트로 따로 붙입니다): {topics}\n"
     "  이 항목은 답하지 않습니다. 일반론·업계 관행·흔한 방식·추정 단락을 쓰지 않고, \"외부 자료를 조회하지 못했다\"는 말이나"
-    " 확인 필요 항목에도 넣지 않습니다. 코드·문서로 확인한 내용만 씁니다.\n"
+    " 첫 줄·확인 필요 항목에도 넣지 않습니다. 코드·문서로 확인한 내용만 씁니다.\n"
 )
 UNAVAILABLE_TEXT = "지금은 AI 모델을 호출할 수 없어 답하지 못했어요(크레딧·인증 문제). 관리자에게 알려 주세요."
 
@@ -473,6 +473,9 @@ class AnswerService:
         verified, unverified = self._verify(query_id, evidence or answer_text, session, commit)
         if comparison:
             body = _mark_unchecked_dev_paths(body, {c.path for c in verified})
+        if external_prompt:
+            # 지시해도 "외부 리서치는 다루지 않았어요"가 남는다. 프롬프트 블록이 그 안내를 하므로 본문에서 뺀다
+            body = strip_external_meta(body)
         if flow and resp.error not in LIMIT_ERRORS:
             attachment = (flow_filename(question, query_id), render_flow(flow, lambda ref: self._ref_ok(ref, session)))
             attachment_kind = "flow"

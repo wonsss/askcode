@@ -99,3 +99,49 @@ EXTERNAL_ONLY_NO_PROMPT = "이 질문은 외부 조사가 필요해요. AskCode�
 EXTERNAL_NOTE = ("AskCode는 웹을 찾지 않아요. 아래 프롬프트를 다른 AI에 붙여넣어 보세요. 내부 코드 정보는 넣지 않았지만, "
                  "붙여넣기 전에 내용과 사내 외부 AI 사용 정책을 확인해 주세요.")
 EXTERNAL_DROPPED_ONLY = "외부 조사가 필요한 부분이 있지만, 내부 정보가 섞일 수 있어 조사용 프롬프트를 만들지 않았어요."
+
+
+# 외부 조사 프롬프트가 따로 붙을 때 본문에서 지우는 메타 문장 ("외부 리서치는 다루지 않았어요" 류).
+# "외부 신호 수집"·"외부 링크"·"외부 영상" 같은 코드 개념은 건드리지 않도록 좁게 잡는다.
+META_RE = re.compile(r"외부\s*(?:리서치|조사)|외부\s*(?:자료|웹)[^.]{0,20}?(?:조회|검색|찾지|확인하지|못)")
+SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|(?<=[.!?]\*\*)\s+")  # "…해요.** 다음 문장"도 나눈다
+CHECK_PREFIX = "확인 필요"
+
+
+def _strip_check_line(line: str) -> str:
+    """'확인 필요: A, B, 외부 리서치 항목(…)은 다루지 않았어요.'에서 외부 조사 항목만 뺀다. 남는 게 없으면 ''."""
+    head, _, rest = line.partition(":")
+    parts, depth, cur = [], 0, ""
+    for ch in rest:  # 괄호 안 쉼표로는 나누지 않는다
+        depth += (ch == "(") - (ch == ")")
+        if ch == "," and depth == 0:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    parts.append(cur)
+    kept = [p.strip() for p in parts if p.strip() and not META_RE.search(p)]
+    if len(kept) == len([p for p in parts if p.strip()]):
+        return line
+    if not kept:
+        return ""
+    return f"{head}: {', '.join(kept).rstrip('.')}."
+
+
+def strip_external_meta(body: str) -> str:
+    """본문에서 외부 조사 메타 문장을 지운다. 🔧 줄은 두고, 확인 필요 줄은 항목 단위로 뺀다."""
+    out = []
+    for line in body.splitlines():
+        s = line.lstrip()
+        if not META_RE.search(line) or s.startswith("🔧"):
+            out.append(line)
+            continue
+        if s.startswith(CHECK_PREFIX):
+            line = _strip_check_line(line)
+        else:
+            indent = line[: len(line) - len(s)]
+            kept = [x for x in SENTENCE_SPLIT_RE.split(s) if x.strip() and not META_RE.search(x)]
+            line = (indent + " ".join(kept)) if kept else ""
+        if line.strip():
+            out.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()  # 지운 줄 자리의 빈 줄을 합친다

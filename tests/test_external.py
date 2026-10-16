@@ -67,7 +67,7 @@ class Runner:
         self.calls.append(request)
         tools = {t.name: t for t in request.tools}
         await tools["read_code"].handler({"path": "apps/web/lib/bridge.ts", "start": 1, "end": 3})
-        return AgentResponse(text="붙일 수 있어요\n\n근거:\n- apps/web/lib/bridge.ts:1-3 — 메시지", model=request.model)
+        return AgentResponse(text="붙일 수 있어요. 외부 리서치는 다루지 않았어요.\n\n근거:\n- apps/web/lib/bridge.ts:1-3 — 메시지", model=request.model)
 
 
 EXT = {"goal": "의원별 최신 뉴스", "topics": ["국내 뉴스 API 비교", "apps/web 구조 참고"]}
@@ -84,6 +84,7 @@ async def test_mixed_question_answers_code_part_and_attaches_prompt(store, tools
     assert "외부 조사 항목" in q and "국내 뉴스 API 비교" in q and "일반론" in q
     assert a.external_prompt.startswith("입법 정보 서비스에서") and "apps/web" not in a.external_prompt
     assert a.external_dropped == 1 and "외부 조사 1개 항목 제외" in a.scope.reason
+    assert a.body == "붙일 수 있어요."
     texts = [b["text"]["text"] for b in answer_blocks(a) if b["type"] == "section"]
     assert any(t.startswith("```") and "국내 뉴스 API 비교" in t for t in texts)
     row = store.execute("SELECT scope FROM query_results WHERE query_id=?", (a.query_id,)).fetchone()
@@ -114,3 +115,28 @@ async def test_clarify_keeps_prompt(store, tools, repo_cfg, repo_dir):
     a = await svc.answer("뉴스 기능 전부")
     assert a.status == "clarify" and "뉴스 API 비교" in a.external_prompt
     assert any("```" in b.get("text", {}).get("text", "") for b in answer_blocks(a))
+
+
+def test_strip_external_meta_from_real_answer():
+    from askcode.pipeline.external import strip_external_meta
+
+    body = ("**기술적으로는 개발할 수 있어요. 다만 정책 결정이 먼저예요.** 외부 리서치 항목은 코드와 문서로 확인한 내용만 적었어요.\n\n"
+            "- **재사용 가능한 기반이 있어요.** 이슈 주제용 외부 신호 수집이 이미 있어요.\n"
+            "- 기사는 외부 링크로 따로 보여 줘요.\n\n"
+            "확인 필요: 의원 상세에 뉴스를 붙이는 기획이 이미 있는지, 승인 매체 목록의 실제 운영 값, "
+            "외부 리서치 항목(뉴스 소스 비교, 저작권 등)은 이번 답에서 다루지 않았어요.\n\n"
+            "🔧 개발자 참고: `NaverNewsSignalProvider`")
+    out = strip_external_meta(body)
+    assert out.splitlines()[0] == "**기술적으로는 개발할 수 있어요. 다만 정책 결정이 먼저예요.**"
+    assert "외부 리서치" not in out and "외부 신호 수집" in out and "외부 링크" in out
+    assert "확인 필요: 의원 상세에 뉴스를 붙이는 기획이 이미 있는지, 승인 매체 목록의 실제 운영 값." in out
+    assert out.endswith("`NaverNewsSignalProvider`")
+
+
+def test_strip_external_meta_drops_whole_lines_and_keeps_clean_text():
+    from askcode.pipeline.external import strip_external_meta
+
+    assert strip_external_meta("결론이에요.\n\n확인 필요: 외부 조사 항목은 다루지 않았어요.") == "결론이에요."
+    assert strip_external_meta("결론.\n\n외부 자료를 조회하지 못해 일반론은 생략했어요.\n\n끝.") == "결론.\n\n끝."
+    clean = "**결론이에요.**\n\n- 외부 영상도 보조자료예요."
+    assert strip_external_meta(clean) == clean
