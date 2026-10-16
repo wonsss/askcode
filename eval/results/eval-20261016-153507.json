@@ -1,0 +1,41 @@
+{
+  "summary": {
+    "items": 1,
+    "correct": "0% (0/1)",
+    "behavior": "100% (1/1)",
+    "scope_recall": "100% (1/1)",
+    "evidence_recall": "33%",
+    "avg_cost_usd": 0.8416,
+    "total_cost_usd": 0.8416,
+    "avg_duration_s": 43.0,
+    "avg_tool_calls": 9.0,
+    "high_confidence": 1
+  },
+  "results": [
+    {
+      "id": "q29",
+      "type": "mixed_external",
+      "question": "의원에 대한 최신 뉴스 구현 방법 개발 가능할까? 최신 뉴스 수집, 검증 등.. 어떻게 할 수 있을까? 외부 리서치",
+      "expected_behavior": "answer",
+      "behavior": "answer",
+      "behavior_ok": true,
+      "scope_ok": true,
+      "scope_domains": [],
+      "evidence_recall": 0.3333333333333333,
+      "correct": false,
+      "judge_reason": "기존 네이버 뉴스 수집기·허용 매체 정책 재사용 방향을 짚지 못하고 정책상 불허로 답했으며, external_prompt 없이 내부 식별자(SupplementaryContent 등)를 노출함.",
+      "confidence": "high",
+      "route": "agent",
+      "cost_usd": 0.841583,
+      "duration_s": 43.0,
+      "tool_calls": 9,
+      "cited": [
+        "docs/decisions/00-product-brief.md",
+        "docs/decisions/12-editorial-policy-supplementary-sources.md",
+        "packages/database/prisma/schema.prisma",
+        "scripts/bill_media_discovery/README.md"
+      ],
+      "error": null
+    }
+  ]
+}

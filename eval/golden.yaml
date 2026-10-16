@@ -364,3 +364,20 @@
     - path: notion/팔로우-구독-기획서-01006c02.md
       lines: "1-20"
   notes: "100개와 문서의 50개 불일치를 지적해야 통과."
+
+- id: q29
+  type: mixed_external
+  question: "의원에 대한 최신 뉴스 구현 방법 개발 가능할까? 최신 뉴스 수집, 검증 등.. 어떻게 할 수 있을까? 외부 리서치"
+  expected_behavior: answer
+  expected_domains: [people, ingestion]
+  answer: "기술적으로는 가능하지만 편집 정책이 먼저다. 뉴스는 공식 기록과 분리된 보조자료(SupplementaryContent)로 다루고, 크롤링 자동 수집 없이 사람이 승인한 매체 화이트리스트만 받는다. 이미 워커에 네이버 뉴스 검색 수집기가 있어 원문 URL 매체가 허용 매체 정책(버전 보존 DB)에 있는 기사만 남기고, 제목 기준 중복 제거와 매체당 건수 제한을 한다. 의원 단위 뉴스는 이 경로를 의원 이름 질의로 재사용하되, 동명이인·공식 기록 연결 확인과 검토 필요 상태를 거친다. 외부 조사(뉴스 API 비교·저작권 등)는 답하지 않고 외부 조사 프롬프트로 넘긴다."
+  evidence:
+    - path: docs/decisions/12-editorial-policy-supplementary-sources.md
+      lines: "46-62"
+    - path: apps/worker/src/issues/signal-providers/naver-news.provider.ts
+      lines: "36-80"
+    - path: apps/worker/src/issues/external-signal-collection.service.ts
+      lines: "301-308"
+    - path: packages/database/prisma/schema.prisma
+      lines: "1497-1530"
+  notes: "되묻기·거절이면 실패. 화이트리스트 편집 정책과 기존 네이버 뉴스 수집기·허용 매체 정책 중 하나 이상을 근거로 짚어야 통과. 외부 조사 프롬프트(external_prompt)는 평가표가 아니라 슬랙·CLI에서 확인(law-watch 666382d 기준)."
