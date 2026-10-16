@@ -39,6 +39,10 @@
                      노션(API 토큰 연결) · 슬랙(지정 공개 채널, 최근 90일) 수집
 ```
 
+<img src="docs/screenshots/web-console-home.webp" alt="웹 콘솔 홈" width="640">
+
+*웹 콘솔 홈: 슬랙에서 받은 답을 다시 찾고, 이번 주 질문·비용·확인 필요 건수를 본다.*
+
 ## 실행
 
 ```bash
@@ -89,6 +93,8 @@ bash scripts/build-macos-app.sh     # 빌드 → ~/Applications/AskCode.app 설�
 ```
 
 메뉴 막대 아이콘을 누르면 창이 열린다.
+
+<img src="docs/screenshots/menubar-app.webp" alt="AskCode 메뉴 막대 앱" width="360">
 
 | 영역 | 내용 |
 | --- | --- |
