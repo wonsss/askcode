@@ -11,3 +11,4 @@ secrets/
 .DS_Store
 backups/
 dist/
+.gstack/
